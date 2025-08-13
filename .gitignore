@@ -1,0 +1,9 @@
+*.exe
+*.o
+*.s
+*.vscode
+*.bin
+*UID.txt
+*.map
+
+
