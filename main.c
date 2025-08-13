@@ -12,7 +12,7 @@
 
 //**************************** Include Files ***********************************
 #include "common.h"
-#include "multiTread/multiThread.h"
+#include "multiThread/multiThread.h"
 
 //******************************* Local Types **********************************
 

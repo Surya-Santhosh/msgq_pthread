@@ -1,0 +1,29 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "cppbuild",
+            "label": "C/C++: gcc.exe build active file",
+            "command": "gcc",
+            "args":[
+                "-g",
+                "-O0",
+                "-I./multiThread",
+                "-I.",
+                "multiThread/multiThread.c",
+                "${file}",
+                "-o",
+                "multiThread.exe"
+                
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                
+            ],
+            "group": "build",
+            "detail": "compiler: gcc"
+        }
+    ]
+}

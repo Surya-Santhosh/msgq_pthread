@@ -37,7 +37,12 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
 {
     TASK_HANDLER stRecievedStatus = {0};
     stTaskStatus->stTaskHandler.blPoller = false;
-    struct mq_attr attr = {0, MAX_MESSAGE, sizeof(TASK_HANDLER), 0};
+    // struct mq_attr attr = {0, MAX_MESSAGE, sizeof(TASK_HANDLER), 0};
+    struct mq_attr attr = {0};
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = MAX_MESSAGE;
+    attr.mq_msgsize = sizeof(TASK_HANDLER);
+    attr.mq_curmsgs = 0;
 
     if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
     {
@@ -135,7 +140,12 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
 static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
 {
     TASK_STATUS stRecievedStatus = {0};
-    struct mq_attr attr = {0, MAX_MESSAGE, sizeof(TASK_HANDLER), 0};
+    // struct mq_attr attr = {0, MAX_MESSAGE, sizeof(TASK_HANDLER), 0};
+    struct mq_attr attr = {0};
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = MAX_MESSAGE;
+    attr.mq_msgsize = sizeof(TASK_HANDLER);
+    attr.mq_curmsgs = 0;
     stTaskStatus->stTaskHandler.blTransport = false;
     stTaskStatus->stTaskHandler.blTransportAck = false;
 
@@ -287,7 +297,12 @@ static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
 //******************************************************************************
 static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
 {
-    struct mq_attr attr = {0, MAX_MESSAGE, sizeof(TASK_HANDLER), 0};
+    // struct mq_attr attr = {0, MAX_MESSAGE, sizeof(TASK_HANDLER), 0};
+    struct mq_attr attr = {0};
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = MAX_MESSAGE;
+    attr.mq_msgsize = sizeof(TASK_HANDLER);
+    attr.mq_curmsgs = 0;
     TASK_STATUS stRecievedStatus = {0};
     stTaskStatus->stTaskHandler.blLoggerAck = false;
 
@@ -377,7 +392,6 @@ bool multiThreadSetUp()
     pthread_t ulPoller = 0;
     pthread_t ulTransport = 0;
     pthread_t ulLogger = 0;
-    uint8 ucIndex = 0;
     TASK_STATUS stTaskStatus = {0};
 
     if (0 != pthread_mutex_init (&stTaskStatus.stMutex, NULL))
