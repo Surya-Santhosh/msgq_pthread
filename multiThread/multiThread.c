@@ -491,7 +491,7 @@ static bool multiThreadmsgqSend(mqd_t *message, const char* pcBuffer,
             perror("mq_open");
         }
 
-        if (-1 == mq_send(*message, pcBuffer, sizeof(TASK_HANDLER), 0))
+        if (-1 == mq_send(*message, pcBuffer, pcMsgSize, 0))
         {
             perror ("mq_send");
         }

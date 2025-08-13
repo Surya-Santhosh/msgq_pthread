@@ -37,18 +37,18 @@ typedef unsigned long uint32;
 // Request data.
 typedef struct REQUEST
 {
-    uint8 ucUID;
-    uint8 ucCMD;
-    uint8 ucData;
+    int8 ucUID;
+    int8 ucCMD;
+    int8 ucData;
 }REQUEST;
 
 // Acknowledgment data.
 typedef struct ACK
 {
-    uint8 ucUID;
-    uint8 ucCMD;
-    uint8 ucSTATE;
-    uint8 ucData;
+    int8 ucUID;
+    int8 ucCMD;
+    int8 ucSTATE;
+    int8 ucData;
 }ACK;
 
 typedef struct TASK_STATUS
