@@ -17,6 +17,7 @@
 //***************************** Local Constants ********************************
 
 //**************************** Local Variables *********************************
+TASK_HANDLER stTaskHandler = {0};
 
 //***************************** Local Functions ********************************
 static bool multiThreadDestroy(TASK_STATUS *stTaskStatus);
@@ -25,6 +26,10 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus);
 static bool multiThreadTransport(TASK_STATUS *stTaskStatus);
 static bool multiThreadLogger(TASK_STATUS *stTaskStatus);
 static bool multiThreadMessageQUnlink();
+static bool multiThreadmsgqSend(mqd_t *message, const char* pcBuffer, 
+                                char *pcMsgqFileName, uint32 pcMsgSize);
+static bool multiThreadmsgqRecieve(mqd_t *message, const char* pcBuffer, 
+                                   char *pcMsgqFileName, uint32 pcMsgSize);
 
 //**************************.multiThreadPoller.*********************************
 // Purpose : Add two numbers
@@ -36,12 +41,11 @@ static bool multiThreadMessageQUnlink();
 static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
 {
     TASK_HANDLER stRecievedStatus = {0};
-    stTaskStatus->stTaskHandler.blPoller = false;
-    struct mq_attr attr = {0};
-    attr.mq_flags = 0;
-    attr.mq_maxmsg = MAX_MESSAGE;
-    attr.mq_msgsize = sizeof(TASK_HANDLER);
-    attr.mq_curmsgs = 0;
+    // struct mq_attr attr = {0};
+    // attr.mq_flags = 0;
+    // attr.mq_maxmsg = MAX_MESSAGE;
+    // attr.mq_msgsize = sizeof(TASK_HANDLER);
+    // attr.mq_curmsgs = 0;
 
     if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
     {
@@ -52,32 +56,44 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
 
     if (-1 != getchar())
     {
-        stTaskStatus->stTaskHandler.blPoller = true;
+        stTaskHandler.blPoller = true;
     }
 
-    stTaskStatus->msgPoller = mq_open(MSGQ_POLLER_TO_TRANSPORT, 
-                                      O_CREAT | O_RDWR, 0644, &attr);
-
-    if (-1 == stTaskStatus->msgPoller)
+    if (true != multiThreadmsgqSend(&stTaskStatus->msgPoller, 
+                                    (const char *)&stTaskHandler, 
+                                     MSGQ_POLLER_TO_TRANSPORT, 
+                                     sizeof(TASK_HANDLER)))
     {
-        perror("mq_open");
-    }
-
-    if (-1 == mq_send(stTaskStatus->msgPoller, 
-                     (const char*) &(stTaskStatus)->stTaskHandler, 
-                     sizeof(TASK_HANDLER), 0))
-    {
-        perror ("mq_send");
+        perror ("multiThreadmsgqSend");
     }
     else
     {
         printf("GPIO is high.\n");
     }
 
-    if (0 != mq_close(stTaskStatus->msgPoller))
-    {
-        perror ("mq_close.");
-    }
+    // stTaskStatus->msgPoller = mq_open(MSGQ_POLLER_TO_TRANSPORT, 
+    //                                   O_CREAT | O_RDWR, 0644, &attr);
+
+    // if (-1 == stTaskStatus->msgPoller)
+    // {
+    //     perror("mq_open");
+    // }
+
+    // if (-1 == mq_send(stTaskStatus->msgPoller, 
+    //                  (const char*) &stTaskHandler, 
+    //                  sizeof(TASK_HANDLER), 0))
+    // {
+    //     perror ("mq_send");
+    // }
+    // else
+    // {
+    //     printf("GPIO is high.\n");
+    // }
+
+    // if (0 != mq_close(stTaskStatus->msgPoller))
+    // {
+    //     perror ("mq_close.");
+    // }
 
     pthread_cond_signal (&(stTaskStatus)->stMsgFromPoller);
 
@@ -92,34 +108,46 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
         perror("pthread_mutex_lock");
     }
 
-    while (true != stTaskStatus->stTaskHandler.blTransportAck)
+    while (true != stTaskHandler.blTransportAck)
     {
         pthread_cond_wait (&(stTaskStatus)->stAckFromTransport, 
                            &(stTaskStatus)->stMutex);
     }
 
-    stTaskStatus->ackTransport = mq_open(MSGQ_TRANSPORT_TO_POLLER, 
-                                         O_CREAT | O_RDWR, 0644, &attr);
-                                         
-    if (-1 == stTaskStatus->ackTransport)
-    {                           
-        perror("mq_open");
-    }
-
-    if (-1 == mq_receive(stTaskStatus->ackTransport, (char *)&stRecievedStatus, 
-                         sizeof(TASK_HANDLER), NULL))
+    if (true != multiThreadmsgqRecieve(&stTaskStatus->ackTransport, 
+                                       (const char *)&stRecievedStatus, 
+                                       MSGQ_TRANSPORT_TO_POLLER, 
+                                       sizeof(TASK_HANDLER)))
     {
-        perror ("mq_receive.");
+        perror ("multiThreadmsgqRecieve");
     }
     else
     {
         printf("Recieved acknowledgment from Transport.\n");
     }
 
-    if (0 != mq_close(stTaskStatus->ackTransport))
-    {
-        perror ("mq_close.");
-    }
+    // stTaskStatus->ackTransport = mq_open(MSGQ_TRANSPORT_TO_POLLER, 
+    //                                      O_CREAT | O_RDWR, 0644, &attr);
+                                         
+    // if (-1 == stTaskStatus->ackTransport)
+    // {                           
+    //     perror("mq_open");
+    // }
+
+    // if (-1 == mq_receive(stTaskStatus->ackTransport, (char *)&stRecievedStatus, 
+    //                      sizeof(TASK_HANDLER), NULL))
+    // {
+    //     perror ("mq_receive.");
+    // }
+    // else
+    // {
+    //     printf("Recieved acknowledgment from Transport.\n");
+    // }
+
+    // if (0 != mq_close(stTaskStatus->ackTransport))
+    // {
+    //     perror ("mq_close.");
+    // }
 
     if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
     {
@@ -138,14 +166,12 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
 //******************************************************************************
 static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
 {
-    TASK_STATUS stRecievedStatus = {0};
-    struct mq_attr attr = {0};
-    attr.mq_flags = 0;
-    attr.mq_maxmsg = MAX_MESSAGE;
-    attr.mq_msgsize = sizeof(TASK_HANDLER);
-    attr.mq_curmsgs = 0;
-    stTaskStatus->stTaskHandler.blTransport = false;
-    stTaskStatus->stTaskHandler.blTransportAck = false;
+    TASK_HANDLER stRecievedStatus = {0};
+    // struct mq_attr attr = {0};
+    // attr.mq_flags = 0;
+    // attr.mq_maxmsg = MAX_MESSAGE;
+    // attr.mq_msgsize = sizeof(TASK_HANDLER);
+    // attr.mq_curmsgs = 0;
 
     if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
     {
@@ -153,92 +179,128 @@ static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
     }
 
     //wait for message from poller.
-    while (true != stTaskStatus->stTaskHandler.blPoller)
+    while (true != stTaskHandler.blPoller)
     {
         pthread_cond_wait (&(stTaskStatus)->stMsgFromPoller, 
                            &(stTaskStatus)->stMutex);
     }
 
-    stTaskStatus->msgPoller = mq_open(MSGQ_POLLER_TO_TRANSPORT, 
-                                      O_CREAT | O_RDWR, 0644, &attr);
-
-    if (-1 == stTaskStatus->msgPoller)
+    if (true != multiThreadmsgqRecieve(&stTaskStatus->msgPoller, 
+                                       (const char *)&stRecievedStatus, 
+                                       MSGQ_POLLER_TO_TRANSPORT, 
+                                       sizeof(TASK_HANDLER)))
     {
-        perror("mq_open");
-    }
-
-    if (-1 == mq_receive(stTaskStatus->msgPoller, (char *)&stRecievedStatus, 
-                         sizeof(TASK_HANDLER), NULL))
-    {
-        perror ("mq_receive.");
+        perror ("multiThreadmsgqRecieve");
     }
     else
     {
         printf ("Recieved message from Poller.\n");
     }
 
-    if (0 != mq_close(stTaskStatus->msgPoller))
-    {
-        perror ("mq_close.");
-    }
+    // stTaskStatus->msgPoller = mq_open(MSGQ_POLLER_TO_TRANSPORT, 
+    //                                   O_CREAT | O_RDWR, 0644, &attr);
+
+    // if (-1 == stTaskStatus->msgPoller)
+    // {
+    //     perror("mq_open");
+    // }
+
+    // if (-1 == mq_receive(stTaskStatus->msgPoller, (char *)&stRecievedStatus, 
+    //                      sizeof(TASK_HANDLER), NULL))
+    // {
+    //     perror ("mq_receive.");
+    // }
+    // else
+    // {
+    //     printf ("Recieved message from Poller.\n");
+    // }
+
+    // if (0 != mq_close(stTaskStatus->msgPoller))
+    // {
+    //     perror ("mq_close.");
+    // }
 
     // Send ack to poller.
-    stTaskStatus->stTaskHandler.blTransportAck = true;
+    stTaskHandler.blTransportAck = true;
 
     pthread_cond_signal (&(stTaskStatus)->stAckFromTransport);
 
-    stTaskStatus->ackTransport = mq_open(MSGQ_TRANSPORT_TO_POLLER, 
-                                         O_CREAT | O_RDWR, 0644, &attr);
-                                         
-    if (-1 == stTaskStatus->ackTransport)
+    if (true != multiThreadmsgqSend(&stTaskStatus->ackTransport, 
+                                    (const char *)&stTaskHandler, 
+                                     MSGQ_TRANSPORT_TO_POLLER, 
+                                     sizeof(TASK_HANDLER)))
     {
-        perror("mq_open");
-    }
-
-    if (-1 == mq_send(stTaskStatus->ackTransport, 
-                      (const char*)&(stTaskStatus)->stTaskHandler,
-                      sizeof(TASK_HANDLER), 0))
-    {
-        perror ("mq_send");
+        perror ("multiThreadmsgqSend");
     }
     else
     {
         printf("Send acknowledgment from Transport to poller.\n");
     }
 
-    if (0 != mq_close(stTaskStatus->ackTransport))
-    {
-        perror ("mq_close.");
-    }
+    // stTaskStatus->ackTransport = mq_open(MSGQ_TRANSPORT_TO_POLLER, 
+    //                                      O_CREAT | O_RDWR, 0644, &attr);
+                                         
+    // if (-1 == stTaskStatus->ackTransport)
+    // {
+    //     perror("mq_open");
+    // }
+
+    // if (-1 == mq_send(stTaskStatus->ackTransport, 
+    //                   (const char*)&stTaskHandler,
+    //                   sizeof(TASK_HANDLER), 0))
+    // {
+    //     perror ("mq_send");
+    // }
+    // else
+    // {
+    //     printf("Send acknowledgment from Transport to poller.\n");
+    // }
+
+    // if (0 != mq_close(stTaskStatus->ackTransport))
+    // {
+    //     perror ("mq_close.");
+    // }
 
     // Send msg to logger.
-    stTaskStatus->stTaskHandler.blTransport = true;
+    stTaskHandler.blTransport = true;
 
     pthread_cond_signal (&(stTaskStatus)->stMsgFromTransport);
 
-    stTaskStatus->msgTransport = mq_open(MSGQ_TRANSPORT_TO_LOGGER, 
-                                         O_CREAT | O_RDWR, 0644, &attr);
-
-    if (-1 == stTaskStatus->msgTransport)
+    if (true != multiThreadmsgqSend(&stTaskStatus->msgTransport, 
+                                    (const char *)&stTaskHandler, 
+                                     MSGQ_TRANSPORT_TO_LOGGER, 
+                                     sizeof(TASK_HANDLER)))
     {
-        perror("mq_open");
-    }
-
-    if (-1 == mq_send(stTaskStatus->msgTransport, 
-                      (const char*) &(stTaskStatus)->stTaskHandler,
-                      sizeof(TASK_HANDLER), 0))
-    {
-        perror ("mq_send");
+        perror ("multiThreadmsgqSend");
     }
     else
     {
         printf("Send message from Transport to Logger.\n");
     }
 
-    if (0 != mq_close(stTaskStatus->msgTransport))
-    {
-        perror ("mq_close.");
-    }
+    // stTaskStatus->msgTransport = mq_open(MSGQ_TRANSPORT_TO_LOGGER, 
+    //                                      O_CREAT | O_RDWR, 0644, &attr);
+
+    // if (-1 == stTaskStatus->msgTransport)
+    // {
+    //     perror("mq_open");
+    // }
+
+    // if (-1 == mq_send(stTaskStatus->msgTransport, 
+    //                   (const char*) &stTaskHandler,
+    //                   sizeof(TASK_HANDLER), 0))
+    // {
+    //     perror ("mq_send");
+    // }
+    // else
+    // {
+    //     printf("Send message from Transport to Logger.\n");
+    // }
+
+    // if (0 != mq_close(stTaskStatus->msgTransport))
+    // {
+    //     perror ("mq_close.");
+    // }
 
     if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
     {
@@ -250,33 +312,45 @@ static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
     {
         perror("pthread_mutex_lock");
     }
-    while (true != stTaskStatus->stTaskHandler.blLoggerAck)
+    while (true != stTaskHandler.blLoggerAck)
     {
         pthread_cond_wait (&(stTaskStatus)->stAckFromLogger, 
                            &(stTaskStatus)->stMutex);
     }
 
-    stTaskStatus->ackLogger = mq_open(MSGQ_LOGGER_TO_TRANSPORT, 
-                                      O_CREAT | O_RDWR, 0644, &attr);
-    if (-1 == stTaskStatus->ackLogger)
+    if (true != multiThreadmsgqRecieve(&stTaskStatus->ackLogger, 
+                                       (const char *)&stRecievedStatus, 
+                                       MSGQ_LOGGER_TO_TRANSPORT, 
+                                       sizeof(TASK_HANDLER)))
     {
-        perror("mq_open");
-    }
-
-    if (-1 == mq_receive(stTaskStatus->ackLogger, (char *)&stRecievedStatus, 
-                         sizeof(TASK_HANDLER), NULL))
-    {
-        perror ("mq_receive.");
+        perror ("multiThreadmsgqRecieve");
     }
     else
     {
         printf("Recieved acknowledgment from Logger.\n");
     }
 
-    if (0 != mq_close(stTaskStatus->ackLogger))
-    {
-        perror ("mq_close.");
-    }
+    // stTaskStatus->ackLogger = mq_open(MSGQ_LOGGER_TO_TRANSPORT, 
+    //                                   O_CREAT | O_RDWR, 0644, &attr);
+    // if (-1 == stTaskStatus->ackLogger)
+    // {
+    //     perror("mq_open");
+    // }
+
+    // if (-1 == mq_receive(stTaskStatus->ackLogger, (char *)&stRecievedStatus, 
+    //                      sizeof(TASK_HANDLER), NULL))
+    // {
+    //     perror ("mq_receive.");
+    // }
+    // else
+    // {
+    //     printf("Recieved acknowledgment from Logger.\n");
+    // }
+
+    // if (0 != mq_close(stTaskStatus->ackLogger))
+    // {
+    //     perror ("mq_close.");
+    // }
 
     if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
     {
@@ -295,13 +369,12 @@ static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
 //******************************************************************************
 static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
 {
-    TASK_STATUS stRecievedStatus = {0};
+    TASK_HANDLER stRecievedStatus = {0};
     struct mq_attr attr = {0};
     attr.mq_flags = 0;
     attr.mq_maxmsg = MAX_MESSAGE;
     attr.mq_msgsize = sizeof(TASK_HANDLER);
     attr.mq_curmsgs = 0;
-    stTaskStatus->stTaskHandler.blLoggerAck = false;
 
     if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
     {
@@ -309,7 +382,7 @@ static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
     }
 
     //wait for Transport variable.
-    while (true != stTaskStatus->stTaskHandler.blTransport)
+    while (true != stTaskHandler.blTransport)
     {
         pthread_cond_wait (&(stTaskStatus)->stMsgFromTransport, 
                            &(stTaskStatus)->stMutex);
@@ -317,55 +390,79 @@ static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
 
     pthread_cond_signal (&(stTaskStatus)->stMsgFromTransport);
 
-    stTaskStatus->msgTransport = mq_open(MSGQ_TRANSPORT_TO_LOGGER, 
-                                         O_CREAT | O_RDWR, 0644, &attr);
-    if (-1 == stTaskStatus->msgTransport)
+    if (true != multiThreadmsgqRecieve(&stTaskStatus->msgTransport, 
+                                       (const char *)&stRecievedStatus, 
+                                       MSGQ_TRANSPORT_TO_LOGGER, 
+                                       sizeof(TASK_HANDLER)))
     {
-        perror("mq_open");
-    }
-
-    if (-1 == mq_receive(stTaskStatus->msgTransport, (char *)&stRecievedStatus, 
-                         sizeof(TASK_HANDLER), NULL))
-    {
-        perror ("mq_receive.");
+        perror ("multiThreadmsgqRecieve");
     }
     else
     {
         printf("Recieved message from Transport.\n");
     }
 
-    if (0 != mq_close(stTaskStatus->msgTransport))
-    {
-        perror ("mq_close.");
-    }
+    // stTaskStatus->msgTransport = mq_open(MSGQ_TRANSPORT_TO_LOGGER, 
+    //                                      O_CREAT | O_RDWR, 0644, &attr);
+    // if (-1 == stTaskStatus->msgTransport)
+    // {
+    //     perror("mq_open");
+    // }
+
+    // if (-1 == mq_receive(stTaskStatus->msgTransport, (char *)&stRecievedStatus, 
+    //                      sizeof(TASK_HANDLER), NULL))
+    // {
+    //     perror ("mq_receive.");
+    // }
+    // else
+    // {
+    //     printf("Recieved message from Transport.\n");
+    // }
+
+    // if (0 != mq_close(stTaskStatus->msgTransport))
+    // {
+    //     perror ("mq_close.");
+    // }
 
     printf("LED ON\n");
 
     // Send ack to Transport.
-    stTaskStatus->stTaskHandler.blLoggerAck = true;
+    stTaskHandler.blLoggerAck = true;
 
-    stTaskStatus->ackLogger = mq_open(MSGQ_LOGGER_TO_TRANSPORT, 
-                                      O_CREAT | O_RDWR, 0644, &attr);
-    if (-1 == stTaskStatus->ackLogger)
+    if (true != multiThreadmsgqSend(&stTaskStatus->ackLogger, 
+                                    (const char *)&stTaskHandler, 
+                                     MSGQ_LOGGER_TO_TRANSPORT, 
+                                     sizeof(TASK_HANDLER)))
     {
-        perror("mq_open");
-    }
-
-    if (-1 == mq_send(stTaskStatus->ackLogger, 
-                      (const char*) &(stTaskStatus)->stTaskHandler,
-                      sizeof(TASK_HANDLER), 0))
-    {
-        perror ("mq_send");
+        perror ("multiThreadmsgqSend");
     }
     else
     {
         printf("Send acknowledgment from Logger to transport.\n");
     }
 
-    if (0 != mq_close(stTaskStatus->ackLogger))
-    {
-        perror ("mq_close.");
-    }
+    // stTaskStatus->ackLogger = mq_open(MSGQ_LOGGER_TO_TRANSPORT, 
+    //                                   O_CREAT | O_RDWR, 0644, &attr);
+    // if (-1 == stTaskStatus->ackLogger)
+    // {
+    //     perror("mq_open");
+    // }
+
+    // if (-1 == mq_send(stTaskStatus->ackLogger, 
+    //                   (const char*) &stTaskHandler,
+    //                   sizeof(TASK_HANDLER), 0))
+    // {
+    //     perror ("mq_send");
+    // }
+    // else
+    // {
+    //     printf("Send acknowledgment from Logger to transport.\n");
+    // }
+
+    // if (0 != mq_close(stTaskStatus->ackLogger))
+    // {
+    //     perror ("mq_close.");
+    // }
 
     pthread_cond_signal(&(stTaskStatus)->stAckFromLogger);
 
@@ -548,5 +645,97 @@ static bool multiThreadMessageQUnlink()
 
     return blResult;
 }
+
+//*************************.multiThreadMessageQUnlink.**************************
+// Purpose : Add two numbers
+// Inputs  : None
+// Outputs : None
+// Return  : true
+// Notes   : None
+//******************************************************************************
+static bool multiThreadmsgqSend(mqd_t *message, const char* pcBuffer, 
+                                char *pcMsgqFileName, uint32 pcMsgSize)
+{
+    bool blResult = false;
+    struct mq_attr attr = {0};
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = MAX_MESSAGE;
+    attr.mq_msgsize = pcMsgSize;
+    attr.mq_curmsgs = 0;
+
+    do
+    {
+        *message = mq_open(pcMsgqFileName, O_CREAT | O_RDWR, 0644, &attr);
+
+        if (-1 == *message)
+        {
+            perror("mq_open");
+        }
+
+        if (-1 == mq_send(*message, pcBuffer, sizeof(TASK_HANDLER), 0))
+        {
+            perror ("mq_send");
+        }
+
+        if (0 != mq_close(*message))
+        {
+            perror ("mq_close.");
+        }
+
+        blResult = true;
+        
+    }while (true != blResult);
+    
+    return blResult;
+}
+
+//*************************.multiThreadMessageQUnlink.**************************
+// Purpose : Add two numbers
+// Inputs  : None
+// Outputs : None
+// Return  : true
+// Notes   : None
+//******************************************************************************
+static bool multiThreadmsgqRecieve(mqd_t *message, const char* pcBuffer, 
+                                   char *pcMsgqFileName, uint32 pcMsgSize)
+{
+    bool blResult = false;
+    struct mq_attr attr = {0};
+    attr.mq_flags = 0;
+    attr.mq_maxmsg = MAX_MESSAGE;
+    attr.mq_msgsize = pcMsgSize;
+    attr.mq_curmsgs = 0;
+
+    do
+    {
+        *message = mq_open(pcMsgqFileName, O_CREAT | O_RDWR, 0644, &attr);
+                                         
+        if (-1 == *message)
+        {                           
+            perror("mq_open");
+        }
+
+        if (-1 == mq_receive(*message, (char *)&pcBuffer, sizeof(TASK_HANDLER), 
+                             NULL))
+        {
+            perror ("mq_receive.");
+        }
+        else
+        {
+            printf("Recieved acknowledgment from Transport.\n");
+        }
+
+        if (0 != mq_close(*message))
+        {
+            perror ("mq_close.");
+        }
+
+        blResult = true;
+        
+    }while (true != blResult);
+    
+    return blResult;
+}
+
 
 // EOF

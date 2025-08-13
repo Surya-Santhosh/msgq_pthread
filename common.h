@@ -34,9 +34,30 @@ typedef struct TASK_HANDLER
     bool blLoggerAck; 
 }TASK_HANDLER;
 
+typedef struct REQUEST
+{
+    uint8 ucUID;
+    uint8 ucCMD;
+    uint8 ucData;
+}REQUEST;
+
+typedef struct ACK
+{
+    uint8 ucUID;
+    uint8 ucCMD;
+    uint8 ucSTATE;
+    uint8 ucData;
+}ACK;
+
 typedef struct TASK_STATUS
 {
-    TASK_HANDLER stTaskHandler;
+    // TASK_HANDLER stTaskHandler;
+
+    // Request data.
+    REQUEST stRequest;
+
+    // Acknowledgment data.
+    ACK stAck;
     
     // Conditional variables.
     pthread_mutex_t stMutex;
