@@ -25,15 +25,16 @@ typedef char int8;
 typedef unsigned short uint16;
 typedef unsigned long uint32;
 
-typedef struct TASK_HANDLER
-{
-    bool blPoller;
-    bool blTransport;
-    bool blLogger;
-    bool blTransportAck;
-    bool blLoggerAck; 
-}TASK_HANDLER;
+// typedef struct TASK_HANDLER
+// {
+//     bool blPoller;
+//     bool blTransport;
+//     bool blLogger;
+//     bool blTransportAck;
+//     bool blLoggerAck; 
+// }TASK_HANDLER;
 
+// Request data.
 typedef struct REQUEST
 {
     uint8 ucUID;
@@ -41,6 +42,7 @@ typedef struct REQUEST
     uint8 ucData;
 }REQUEST;
 
+// Acknowledgment data.
 typedef struct ACK
 {
     uint8 ucUID;
@@ -51,14 +53,6 @@ typedef struct ACK
 
 typedef struct TASK_STATUS
 {
-    // TASK_HANDLER stTaskHandler;
-
-    // Request data.
-    REQUEST stRequest;
-
-    // Acknowledgment data.
-    ACK stAck;
-    
     // Conditional variables.
     pthread_mutex_t stMutex;
     pthread_cond_t stMsgFromPoller;
@@ -72,8 +66,14 @@ typedef struct TASK_STATUS
     mqd_t msgTransport;
     mqd_t ackLogger;
 
-    bool blReceiveFlag;
-    bool blSendFlag;
+    bool blSendFlagPoller;
+    bool blSendFlagTransportToLogger;
+    bool blSendFlagTransportToPoller;
+    bool blSendFlagLogger;
+
+    bool blReceiveFlagPoller;
+    bool blReceiveFlagTransport;
+    bool blReceiveFlagLogger;
 }TASK_STATUS;
 
 //************************* Global Constants ***********************************
@@ -87,6 +87,13 @@ typedef struct TASK_STATUS
 #define MSGQ_TRANSPORT_TO_LOGGER  ("/Transport_to_logger")
 #define MSGQ_TRANSPORT_TO_POLLER  ("/Transport_to_poller")
 #define MSGQ_LOGGER_TO_TRANSPORT  ("/logger_to_transport")
+#define CMD_ACK                   ("0x00")
+#define CMD_GET                   ("0x01")
+#define CMD_SET                   ("0x02")
+#define STATE_OK                  ("0x00")
+#define STATE_ERROR               ("0x01")
+#define GPIO_ON                   ("0x0001")
+#define GPIO_OFF                  ("0x0000")
 
 //************************* Global Variables *********************************** 
 

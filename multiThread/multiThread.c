@@ -17,7 +17,6 @@
 //***************************** Local Constants ********************************
 
 //**************************** Local Variables *********************************
-TASK_HANDLER stTaskHandler = {0};
 
 //***************************** Local Functions ********************************
 static bool multiThreadDestroy(TASK_STATUS *stTaskStatus);
@@ -40,7 +39,8 @@ static bool multiThreadmsgqRecieve(mqd_t *message, const char* pcBuffer,
 //******************************************************************************
 static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
 {
-    TASK_HANDLER stRecievedStatus = {0};
+    REQUEST stRequest = {0};
+    ACK stRecievedAck = {0};
 
     if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
     {
@@ -51,18 +51,19 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
 
     if (-1 != getchar())
     {
-        stTaskHandler.blPoller = true;
+        stRequest.ucCMD = CMD_SET;
     }
 
     if (true != multiThreadmsgqSend(&stTaskStatus->msgPoller, 
-                                    (const char *)&stTaskHandler, 
-                                     MSGQ_POLLER_TO_TRANSPORT, 
-                                     sizeof(TASK_HANDLER)))
+                                    (const char *)&stRequest, 
+                                     MSGQ_POLLER_TO_TRANSPORT, sizeof(REQUEST)))
     {
         perror ("multiThreadmsgqSend");
     }
     else
     {
+        stTaskStatus->blSendFlagPoller = true;
+
         printf("GPIO is high.\n");
     }
 
@@ -79,16 +80,16 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
         perror("pthread_mutex_lock");
     }
 
-    while (true != stTaskHandler.blTransportAck)
+    while (true != stTaskStatus->blSendFlagTransportToPoller)
     {
         pthread_cond_wait (&(stTaskStatus)->stAckFromTransport, 
                            &(stTaskStatus)->stMutex);
     }
 
     if (true != multiThreadmsgqRecieve(&stTaskStatus->ackTransport, 
-                                       (const char *)&stRecievedStatus, 
+                                       (const char *)&stRecievedAck, 
                                        MSGQ_TRANSPORT_TO_POLLER, 
-                                       sizeof(TASK_HANDLER)))
+                                       sizeof(ACK)))
     {
         perror ("multiThreadmsgqRecieve");
     }
@@ -114,7 +115,8 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
 //******************************************************************************
 static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
 {
-    TASK_HANDLER stRecievedStatus = {0};
+    ACK stRecievedAck = {0};
+    REQUEST stRecievedRequest = {0};
 
     if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
     {
@@ -122,55 +124,41 @@ static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
     }
 
     //wait for message from poller.
-    while (true != stTaskHandler.blPoller)
+    while (true != stTaskStatus->blSendFlagPoller)
     {
         pthread_cond_wait (&(stTaskStatus)->stMsgFromPoller, 
                            &(stTaskStatus)->stMutex);
     }
 
     if (true != multiThreadmsgqRecieve(&stTaskStatus->msgPoller, 
-                                       (const char *)&stRecievedStatus, 
+                                       (const char *)&stRecievedRequest, 
                                        MSGQ_POLLER_TO_TRANSPORT, 
-                                       sizeof(TASK_HANDLER)))
+                                       sizeof(REQUEST)))
     {
         perror ("multiThreadmsgqRecieve");
     }
     else
     {
+        stTaskStatus->blReceiveFlagTransport = true;
+
         printf ("Recieved message from Poller.\n");
     }
 
-    // Send ack to poller.
-    stTaskHandler.blTransportAck = true;
-
-    pthread_cond_signal (&(stTaskStatus)->stAckFromTransport);
-
-    if (true != multiThreadmsgqSend(&stTaskStatus->ackTransport, 
-                                    (const char *)&stTaskHandler, 
-                                     MSGQ_TRANSPORT_TO_POLLER, 
-                                     sizeof(TASK_HANDLER)))
-    {
-        perror ("multiThreadmsgqSend");
-    }
-    else
-    {
-        printf("Send acknowledgment from Transport to poller.\n");
-    }
-
     // Send msg to logger.
-    stTaskHandler.blTransport = true;
+    // stTaskHandler.blTransport = true;
 
     pthread_cond_signal (&(stTaskStatus)->stMsgFromTransport);
 
     if (true != multiThreadmsgqSend(&stTaskStatus->msgTransport, 
-                                    (const char *)&stTaskHandler, 
-                                     MSGQ_TRANSPORT_TO_LOGGER, 
-                                     sizeof(TASK_HANDLER)))
+                                    (const char *)&stRecievedRequest, 
+                                     MSGQ_TRANSPORT_TO_LOGGER, sizeof(REQUEST)))
     {
         perror ("multiThreadmsgqSend");
     }
     else
     {
+        stTaskStatus->blSendFlagTransportToLogger = true;
+
         printf("Send message from Transport to Logger.\n");
     }
 
@@ -184,16 +172,15 @@ static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
     {
         perror("pthread_mutex_lock");
     }
-    while (true != stTaskHandler.blLoggerAck)
+    while (true != stTaskStatus->blSendFlagLogger)
     {
         pthread_cond_wait (&(stTaskStatus)->stAckFromLogger, 
                            &(stTaskStatus)->stMutex);
     }
 
     if (true != multiThreadmsgqRecieve(&stTaskStatus->ackLogger, 
-                                       (const char *)&stRecievedStatus, 
-                                       MSGQ_LOGGER_TO_TRANSPORT, 
-                                       sizeof(TASK_HANDLER)))
+                                       (const char *)&stRecievedAck, 
+                                       MSGQ_LOGGER_TO_TRANSPORT, sizeof(ACK)))
     {
         perror ("multiThreadmsgqRecieve");
     }
@@ -205,6 +192,22 @@ static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
     if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
     {
         perror("pthread_mutex_unlock");
+    }
+
+    // Send ack to poller.
+    pthread_cond_signal (&(stTaskStatus)->stAckFromTransport);
+
+    if (true != multiThreadmsgqSend(&stTaskStatus->ackTransport, 
+                                    (const char *)&stRecievedAck, 
+                                     MSGQ_TRANSPORT_TO_POLLER, sizeof(ACK)))
+    {
+        perror ("multiThreadmsgqSend");
+    }
+    else
+    {
+        stTaskStatus->blSendFlagTransportToPoller = true;
+
+        printf("Send acknowledgment from Transport to poller.\n");
     }
     
     return true;
@@ -219,7 +222,8 @@ static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
 //******************************************************************************
 static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
 {
-    TASK_HANDLER stRecievedStatus = {0};
+    ACK stAck = {0};
+    REQUEST stRecievedRequest = {0};
 
     if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
     {
@@ -227,7 +231,7 @@ static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
     }
 
     //wait for Transport variable.
-    while (true != stTaskHandler.blTransport)
+    while (true != stTaskStatus->blSendFlagTransportToLogger)
     {
         pthread_cond_wait (&(stTaskStatus)->stMsgFromTransport, 
                            &(stTaskStatus)->stMutex);
@@ -236,31 +240,46 @@ static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
     pthread_cond_signal (&(stTaskStatus)->stMsgFromTransport);
 
     if (true != multiThreadmsgqRecieve(&stTaskStatus->msgTransport, 
-                                       (const char *)&stRecievedStatus, 
+                                       (const char *)&stRecievedRequest, 
                                        MSGQ_TRANSPORT_TO_LOGGER, 
-                                       sizeof(TASK_HANDLER)))
+                                       sizeof(REQUEST)))
     {
         perror ("multiThreadmsgqRecieve");
     }
     else
     {
+        stTaskStatus->blReceiveFlagLogger = true;
+
         printf("Recieved message from Transport.\n");
     }
 
-    printf("LED ON\n");
-
     // Send ack to Transport.
-    stTaskHandler.blLoggerAck = true;
+    // stTaskHandler.blLoggerAck = true;
+    if (GPIO_ON == stRecievedRequest.ucData)
+    {
+        printf("LED ON\n");
+
+        stAck.ucCMD = CMD_ACK;
+        stAck.ucSTATE = STATE_OK;
+        stAck.ucData = GPIO_ON;
+    }
+    else
+    {
+        stAck.ucCMD = CMD_ACK;
+        stAck.ucSTATE = STATE_ERROR;
+        stAck.ucData = GPIO_OFF;
+    }
 
     if (true != multiThreadmsgqSend(&stTaskStatus->ackLogger, 
-                                    (const char *)&stTaskHandler, 
-                                     MSGQ_LOGGER_TO_TRANSPORT, 
-                                     sizeof(TASK_HANDLER)))
+                                    (const char *)&stAck, 
+                                     MSGQ_LOGGER_TO_TRANSPORT, sizeof(ACK)))
     {
         perror ("multiThreadmsgqSend");
     }
     else
     {
+        stTaskStatus->blSendFlagLogger = true;
+
         printf("Send acknowledgment from Logger to transport.\n");
     }
 
@@ -515,8 +534,7 @@ static bool multiThreadmsgqRecieve(mqd_t *message, const char* pcBuffer,
             perror("mq_open");
         }
 
-        if (-1 == mq_receive(*message, (char *)&pcBuffer, sizeof(TASK_HANDLER), 
-                             NULL))
+        if (-1 == mq_receive(*message, (char *)&pcBuffer, pcMsgSize, NULL))
         {
             perror ("mq_receive.");
         }
