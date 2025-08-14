@@ -20,8 +20,10 @@
 //************************* Global Variables *********************************** 
 
 //************************* Forward Declarations ******************************* 
-bool multiThreadmsgqOpen(TASK_STATUS *pstTaskStatus);
-bool multiThreadmsgqClose(TASK_STATUS *pstTaskStatus);
+bool multiThreadmsgqSend(mqd_t *pmessage, const char * pcBuffer, 
+                                uint32 pcMsgSize);
+bool multiThreadmsgqRecieve(mqd_t *pmessage, char * pcBuffer, 
+                                   uint32 pcMsgSize);
 
 //********************** Inline Method Implementations ************************* 
 

@@ -29,7 +29,7 @@
 // Return  : blResult
 // Notes   : None
 //******************************************************************************
-static bool multiThreadmsgqSend(mqd_t *pmessage, const char* pcBuffer, 
+bool multiThreadmsgqSend(mqd_t *pmessage, const char* pcBuffer, 
                                 uint32 pcMsgSize)
 {
     bool blResult = false;
@@ -55,7 +55,7 @@ static bool multiThreadmsgqSend(mqd_t *pmessage, const char* pcBuffer,
 // Return  : blResult
 // Notes   : None
 //******************************************************************************
-static bool multiThreadmsgqRecieve(mqd_t *pmessage, char* pcBuffer, 
+bool multiThreadmsgqRecieve(mqd_t *pmessage, char* pcBuffer, 
                                    uint32 pcMsgSize)
 {
     bool blResult = false;

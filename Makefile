@@ -38,4 +38,3 @@ debug/%.o : %.c
 # To clear release and debug folder.
 clean : 
 	rm -rf $(FOLDER)
-	rm -rf build

@@ -27,10 +27,8 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus);
 static bool multiThreadTransport(TASK_STATUS *pstTaskStatus);
 static bool multiThreadLogger(TASK_STATUS *pstTaskStatus);
 static bool multiThreadMessageQUnlink();
-static bool multiThreadmsgqSend(mqd_t *pmessage, const char * pcBuffer, 
-                                uint32 pcMsgSize);
-static bool multiThreadmsgqRecieve(mqd_t *pmessage, char * pcBuffer, 
-                                   uint32 pcMsgSize);
+static bool multiThreadmsgqOpen(TASK_STATUS *pstTaskStatus);
+static bool multiThreadmsgqClose(TASK_STATUS *pstTaskStatus);
 
 //**************************.multiThreadPoller.*********************************
 // Purpose : Poller Thread - wait for key press (GPIO High), send Request 
