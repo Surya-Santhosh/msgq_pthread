@@ -29,12 +29,14 @@
 // Return  : blResult
 // Notes   : None
 //******************************************************************************
-bool multiThreadmsgqSend(mqd_t *pmessage, const char* pcBuffer, 
-                                uint32 pcMsgSize)
+bool multiThreadmsgqSend(mqd_t *pmessage, const char* pcBuffer)
 {
     bool blResult = false;
+    struct mq_attr stMsgAttr = {0};
 
-    if (-1 == mq_send(*pmessage, pcBuffer, pcMsgSize, 0))
+    mq_getattr(*pmessage, &stMsgAttr);
+
+    if (-1 == mq_send(*pmessage, pcBuffer, stMsgAttr.mq_msgsize, 0))
     {
         perror ("mq_send");
     }
@@ -55,12 +57,15 @@ bool multiThreadmsgqSend(mqd_t *pmessage, const char* pcBuffer,
 // Return  : blResult
 // Notes   : None
 //******************************************************************************
-bool multiThreadmsgqRecieve(mqd_t *pmessage, char* pcBuffer, 
-                                   uint32 pcMsgSize)
+bool multiThreadmsgqRecieve(mqd_t *pmessage, char* pcBuffer)
 {
     bool blResult = false;
+    struct mq_attr stMsgAttr = {0};
 
-    if (-1 == mq_receive(*pmessage, (char *)pcBuffer, pcMsgSize, NULL))
+    mq_getattr(*pmessage, &stMsgAttr);
+
+    if (-1 == mq_receive(*pmessage, (char *)pcBuffer, stMsgAttr.mq_msgsize, 
+                         NULL))
     {
         perror ("mq_receive.");
     }

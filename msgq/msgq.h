@@ -20,10 +20,8 @@
 //************************* Global Variables *********************************** 
 
 //************************* Forward Declarations ******************************* 
-bool multiThreadmsgqSend(mqd_t *pmessage, const char * pcBuffer, 
-                                uint32 pcMsgSize);
-bool multiThreadmsgqRecieve(mqd_t *pmessage, char * pcBuffer, 
-                                   uint32 pcMsgSize);
+bool multiThreadmsgqSend(mqd_t *pmessage, const char * pcBuffer);
+bool multiThreadmsgqRecieve(mqd_t *pmessage, char * pcBuffer);
 
 //********************** Inline Method Implementations ************************* 
 

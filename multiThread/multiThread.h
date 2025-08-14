@@ -20,7 +20,7 @@
 // Request data.
 typedef struct REQUEST
 {
-    uint32 ucUID;
+    uint8 ucUID[MAX_SIZE];
     int8 ucCMD;
     uint8 ucData[MAX_SIZE];
 }REQUEST;
@@ -28,7 +28,7 @@ typedef struct REQUEST
 // Acknowledgment data.
 typedef struct ACK
 {
-    uint32 ucUID;
+    uint8 ucUID[MAX_SIZE];
     int8 ucCMD;
     int8 ucSTATE;
     uint8 ucData[MAX_SIZE];

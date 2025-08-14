@@ -54,7 +54,7 @@ typedef struct TASK_STATUS
 #define MSGQ_TRANSPORT_TO_LOGGER  ("/Transport_to_logger")
 #define MSGQ_TRANSPORT_TO_POLLER  ("/Transport_to_poller")
 #define MSGQ_LOGGER_TO_TRANSPORT  ("/logger_to_transport")
-#define MAX_SIZE                  (4)
+#define MAX_SIZE                  (5)
 #define MAX_MESSAGE               (10) 
 #define CMD_ACK                   (0)
 #define CMD_GET                   (1)

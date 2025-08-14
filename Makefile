@@ -38,3 +38,7 @@ debug/%.o : %.c
 # To clear release and debug folder.
 clean : 
 	rm -rf $(FOLDER)
+	rm -rf /dev/mqueue/Poller_to_Transport
+	rm -rf /dev/mqueue/Transport_to_poller
+	rm -rf /dev/mqueue/Transport_to_logger
+	rm -rf /dev/mqueue/logger_to_transport

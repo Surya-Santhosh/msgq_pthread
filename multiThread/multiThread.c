@@ -60,29 +60,31 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
 
     if (SPACE_CHARACTER != ucKey)
     {
-        stRequest.ucCMD = CMD_SET;
-        stRequest.ucData[MAX_SIZE] = GPIO_ON;
+        stRequest.ucData[MAX_SIZE - 1] = GPIO_ON;
     }
     else
     {
-        stRequest.ucData[MAX_SIZE] = GPIO_OFF;
+        stRequest.ucData[MAX_SIZE - 1] = GPIO_OFF;
     }
 
-    stRequest.ucUID = ucCount;
+    stRequest.ucUID[MAX_SIZE - 1] = ucCount;
     stRequest.ucCMD = CMD_SET;
+    printf("%hhn",stRequest.ucUID);
+    printf("%hhn",stRequest.ucData);
+    printf("%d",stRequest.ucCMD);
 
     if (true != multiThreadmsgqSend(&pstTaskStatus->RequestPoller, 
-                                    (const char *)&stRequest, sizeof(REQUEST)))
+                                    (const char *)&stRequest))
     {
         perror ("multiThreadmsgqSend");
     }
     else
     {
-        printf("UID : %ld\n", stRequest.ucUID);
+        printf("UID : %d\n", stRequest.ucUID[MAX_SIZE - 1]);
 
         pstTaskStatus->blRequestFlagPoller = true;
 
-        if (GPIO_ON == stRequest.ucData[MAX_SIZE])
+        if (GPIO_ON == stRequest.ucData[MAX_SIZE - 1])
         {
             printf("POLLER : GPIO is high.\n");
         }
@@ -112,7 +114,7 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
     }
 
     if (true != multiThreadmsgqRecieve(&pstTaskStatus->ackTransport, 
-                                       (char *)&stRecievedAck, sizeof(ACK)))
+                                       (char *)&stRecievedAck))
     {
         perror ("multiThreadmsgqRecieve");
     }
@@ -123,11 +125,11 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
 
     if (STATE_ERROR != stRecievedAck.ucSTATE)
     {
-        printf("UID : %ld success\n\n", stRecievedAck.ucUID);
+        printf("UID : %d success\n\n", stRecievedAck.ucUID[MAX_SIZE - 1]);
     }
     else
     {
-        printf("UID : %ld Failed\n\n", stRecievedAck.ucUID);
+        printf("UID : %d Failed\n\n", stRecievedAck.ucUID[MAX_SIZE - 1]);
     }
 
     if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
@@ -165,8 +167,7 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
     }
 
     if (true != multiThreadmsgqRecieve(&pstTaskStatus->RequestPoller, 
-                                       (char *)&stRecievedRequest, 
-                                       sizeof(REQUEST)))
+                                       (char *)&stRecievedRequest))
     {
         perror ("multiThreadmsgqRecieve");
     }
@@ -182,8 +183,7 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
     pthread_cond_signal (&(pstTaskStatus)->stReqestFromTransport);
 
     if (true != multiThreadmsgqSend(&pstTaskStatus->RequestTransport, 
-                                    (const char *)&stRecievedRequest, 
-                                     sizeof(REQUEST)))
+                                    (const char *)&stRecievedRequest))
     {
         perror ("multiThreadmsgqSend");
     }
@@ -211,7 +211,7 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
     }
 
     if (true != multiThreadmsgqRecieve(&pstTaskStatus->ackLogger, 
-                                       (char *)&stRecievedAck, sizeof(ACK)))
+                                       (char *)&stRecievedAck))
     {
         perror ("multiThreadmsgqRecieve");
     }
@@ -234,7 +234,7 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
     pthread_cond_signal (&(pstTaskStatus)->stAckFromTransport);
 
     if (true != multiThreadmsgqSend(&pstTaskStatus->ackTransport, 
-                                    (const char *)&stRecievedAck, sizeof(ACK)))
+                                    (const char *)&stRecievedAck))
     {
         perror ("multiThreadmsgqSend");
     }
@@ -282,8 +282,7 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
     pthread_cond_signal (&(pstTaskStatus)->stReqestFromTransport);
 
     if (true != multiThreadmsgqRecieve(&pstTaskStatus->RequestTransport, 
-                                       (char *)&stRecievedRequest, 
-                                       sizeof(REQUEST)))
+                                       (char *)&stRecievedRequest))
     {
         perror ("multiThreadmsgqRecieve");
     }
@@ -295,27 +294,27 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
     }
 
     // Send ack to Transport.
-    if (GPIO_ON == stRecievedRequest.ucData[MAX_SIZE])
+    if (GPIO_ON == stRecievedRequest.ucData[MAX_SIZE - 1])
     {
         printf("LED ON\n");
-        printf("Data : %04x\n", stRecievedRequest.ucData[MAX_SIZE]);
+        printf("Data : %04x\n", stRecievedRequest.ucData[MAX_SIZE - 1]);
 
         stAck.ucSTATE = STATE_OK;
-        stAck.ucData[MAX_SIZE] = GPIO_ON;
+        stAck.ucData[MAX_SIZE - 1] = GPIO_ON;
     }
     else
     {
         printf("LED OFF\n");
-        printf("Data : %04x\n", stRecievedRequest.ucData[MAX_SIZE]);
+        printf("Data : %04x\n", stRecievedRequest.ucData[MAX_SIZE - 1]);
         stAck.ucSTATE = STATE_ERROR;
-        stAck.ucData[MAX_SIZE] = GPIO_OFF;
+        stAck.ucData[MAX_SIZE - 1] = GPIO_OFF;
     }
 
     stAck.ucCMD = CMD_ACK;
-    stAck.ucUID = stRecievedRequest.ucUID;
+    stAck.ucUID[MAX_SIZE - 1] = stRecievedRequest.ucUID[MAX_SIZE - 1];
 
     if (true != multiThreadmsgqSend(&pstTaskStatus->ackLogger, 
-                                    (const char *)&stAck, sizeof(ACK)))
+                                    (const char *)&stAck))
     {
         perror ("multiThreadmsgqSend");
     }
@@ -427,7 +426,8 @@ static bool multiThreadInit(TASK_STATUS *pstTaskStatus)
             perror("pthread_cond_init");
         }
 
-        if (0 != pthread_cond_init(&(pstTaskStatus)->stReqestFromTransport, NULL)) 
+        if (0 != pthread_cond_init(&(pstTaskStatus)->stReqestFromTransport, 
+                                   NULL)) 
         {
             perror("pthread_cond_init");
         }
@@ -548,7 +548,8 @@ static bool multiThreadmsgqOpen(TASK_STATUS *pstTaskStatus)
 
     do
     {
-        attr.mq_msgsize = sizeof(REQUEST); 
+        attr.mq_msgsize = sizeof(ACK); 
+
         pstTaskStatus->RequestPoller = mq_open(MSGQ_POLLER_TO_TRANSPORT, 
                                            O_CREAT | O_RDWR, 0644, &attr);                            
         if (-1 == pstTaskStatus->RequestPoller)
@@ -563,7 +564,8 @@ static bool multiThreadmsgqOpen(TASK_STATUS *pstTaskStatus)
             perror("mq_open");
         }
 
-        attr.mq_msgsize = sizeof(ACK); 
+        attr.mq_msgsize = sizeof(REQUEST); 
+
         pstTaskStatus->RequestTransport = mq_open(MSGQ_LOGGER_TO_TRANSPORT, 
                                               O_CREAT | O_RDWR, 0644, &attr); 
         if (-1 == pstTaskStatus->RequestTransport)
