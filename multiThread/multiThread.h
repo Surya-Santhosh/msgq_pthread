@@ -1,17 +1,20 @@
-//*********************************** add **************************************
+//******************************* multiThread **********************************
 // Copyright (c) 2025 Trenser Technology Solutions
 // All Rights Reserved 
 //******************************************************************************
 //
-// Summary : Add two numbers.
+// Summary : Create threads (Poller, Transport, Logger) send Request and give
+//           Ackowledgment using message queue to turn LED ON using mutex and
+//           conditional variables for synchronisation.
 // Note    : None
 // 
 //******************************************************************************
-#ifndef COUNT_H
-#define COUNT_H
+#ifndef MULTITHREAD_H
+#define MULTITHREAD_H
 
 //**************************** Include Files ***********************************
 #include "common.h"
+#include "msgq.h"
 
 //*************************** Global Types ************************************* 
 
@@ -26,5 +29,5 @@ bool multiThreadSetUp();
 
 #endif 
 
-// COUNT_H 
+// MULTITHREAD_H 
 // EOF

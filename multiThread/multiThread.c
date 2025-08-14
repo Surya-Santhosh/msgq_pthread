@@ -2,8 +2,10 @@
 // Copyright (c) 2025 Trenser Technology Solutions
 // All Rights Reserved
 //******************************************************************************
-// File    : add.c
-// Summary : Add two numbers.
+// File    : multiThread.c
+// Summary : Create threads (Poller, Transport, Logger) send Request and give
+//           Ackowledgment using message queue to turn LED ON using mutex and
+//           conditional variables for synchronisation.
 // Note    : None
 // Author  : Surya Santhosh
 // Day     : 04/Aug/2025
@@ -19,86 +21,104 @@
 //**************************** Local Variables *********************************
 
 //***************************** Local Functions ********************************
-static bool multiThreadDestroy(TASK_STATUS *stTaskStatus);
-static bool multiThreadInit(TASK_STATUS *stTaskStatus);
-static bool multiThreadPoller(TASK_STATUS *stTaskStatus);
-static bool multiThreadTransport(TASK_STATUS *stTaskStatus);
-static bool multiThreadLogger(TASK_STATUS *stTaskStatus);
+static bool multiThreadDestroy(TASK_STATUS *pstTaskStatus);
+static bool multiThreadInit(TASK_STATUS *pstTaskStatus);
+static bool multiThreadPoller(TASK_STATUS *pstTaskStatus);
+static bool multiThreadTransport(TASK_STATUS *pstTaskStatus);
+static bool multiThreadLogger(TASK_STATUS *pstTaskStatus);
 static bool multiThreadMessageQUnlink();
-static bool multiThreadmsgqSend(mqd_t *message, const char* pcBuffer, 
-                                char *pcMsgqFileName, uint32 pcMsgSize);
-static bool multiThreadmsgqRecieve(mqd_t *message, const char* pcBuffer, 
-                                   char *pcMsgqFileName, uint32 pcMsgSize);
+static bool multiThreadmsgqSend(mqd_t *pmessage, const char * pcBuffer, 
+                                uint32 pcMsgSize);
+static bool multiThreadmsgqRecieve(mqd_t *pmessage, char * pcBuffer, 
+                                   uint32 pcMsgSize);
 
 //**************************.multiThreadPoller.*********************************
-// Purpose : Add two numbers
-// Inputs  : None
+// Purpose : Poller Thread - wait for key press (GPIO High), send Request 
+//           message to transport through message queue. And wait for the 
+//           acknowledgment from Transport.
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
 // Return  : true
 // Notes   : None
 //******************************************************************************
-static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
+static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
 {
     REQUEST stRequest = {0};
     ACK stRecievedAck = {0};
+    static uint8 ucCount = 0;
+    ucCount++;
 
-    if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_lock");
     }
 
     printf("Enter any Key:\n");
 
-    if (-1 != getchar())
+    if ('\n' != getchar())
     {
         stRequest.ucCMD = CMD_SET;
+        stRequest.ucData = GPIO_ON;
+    }
+    else
+    {
+        stRequest.ucData = GPIO_OFF;
     }
 
-    if (true != multiThreadmsgqSend(&stTaskStatus->msgPoller, 
-                                    (const char *)&stRequest, 
-                                     MSGQ_POLLER_TO_TRANSPORT, sizeof(REQUEST)))
+    stRequest.ucUID = ucCount;
+    stRequest.ucCMD = CMD_SET;
+
+    if (true != multiThreadmsgqSend(&pstTaskStatus->msgPoller, 
+                                    (const char *)&stRequest, sizeof(REQUEST)))
     {
         perror ("multiThreadmsgqSend");
     }
     else
     {
-        stTaskStatus->blSendFlagPoller = true;
+        printf("UID : %ld\n", stRequest.ucUID);
 
-        printf("GPIO is high.\n");
+        pstTaskStatus->blSendFlagPoller = true;
+        if (GPIO_ON == stRequest.ucData)
+        {
+            printf("Poller : GPIO is high.\n");
+        }
+        else
+        {
+            printf("Poller : GPIO is Low.\n");
+        }
     }
 
-    pthread_cond_signal (&(stTaskStatus)->stMsgFromPoller);
+    pthread_cond_signal (&(pstTaskStatus)->stMsgFromPoller);
 
-    if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_unlock");
     }
 
     //wait for ack from transport.
-    if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_lock");
     }
 
-    while (true != stTaskStatus->blSendFlagTransportToPoller)
+    while (true != pstTaskStatus->blSendFlagTransportToPoller)
     {
-        pthread_cond_wait (&(stTaskStatus)->stAckFromTransport, 
-                           &(stTaskStatus)->stMutex);
+        pthread_cond_wait (&(pstTaskStatus)->stAckFromTransport, 
+                           &(pstTaskStatus)->stMutex);
     }
 
-    if (true != multiThreadmsgqRecieve(&stTaskStatus->ackTransport, 
-                                       (const char *)&stRecievedAck, 
-                                       MSGQ_TRANSPORT_TO_POLLER, 
-                                       sizeof(ACK)))
+    if (true != multiThreadmsgqRecieve(&pstTaskStatus->ackTransport, 
+                                       (char *)&stRecievedAck, sizeof(ACK)))
     {
         perror ("multiThreadmsgqRecieve");
     }
     else
     {
-        printf("Recieved acknowledgment from Transport.\n");
+        printf("Poller : Recieved Ack.\n\n");
     }
 
-    if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_unlock");
     }
@@ -106,186 +126,196 @@ static bool multiThreadPoller(TASK_STATUS *stTaskStatus)
     return true;
 }
 
-//***************************.multiThreadTransport.*****************************
-// Purpose : Add two numbers
-// Inputs  : None
+//**************************.multiThreadTransport.******************************
+// Purpose : Transport Thread - wait for message from Poller, forward to Logger  
+//           and wait for the acknowledgment from Logger, forward to Poller. 
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
 // Return  : true
 // Notes   : None
 //******************************************************************************
-static bool multiThreadTransport(TASK_STATUS *stTaskStatus)
+static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
 {
     ACK stRecievedAck = {0};
     REQUEST stRecievedRequest = {0};
 
-    if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_lock");
     }
 
     //wait for message from poller.
-    while (true != stTaskStatus->blSendFlagPoller)
+    while (true != pstTaskStatus->blSendFlagPoller)
     {
-        pthread_cond_wait (&(stTaskStatus)->stMsgFromPoller, 
-                           &(stTaskStatus)->stMutex);
+        pthread_cond_wait (&(pstTaskStatus)->stMsgFromPoller, 
+                           &(pstTaskStatus)->stMutex);
     }
 
-    if (true != multiThreadmsgqRecieve(&stTaskStatus->msgPoller, 
-                                       (const char *)&stRecievedRequest, 
-                                       MSGQ_POLLER_TO_TRANSPORT, 
+    if (true != multiThreadmsgqRecieve(&pstTaskStatus->msgPoller, 
+                                       (char *)&stRecievedRequest, 
                                        sizeof(REQUEST)))
     {
         perror ("multiThreadmsgqRecieve");
     }
     else
     {
-        stTaskStatus->blReceiveFlagTransport = true;
+        pstTaskStatus->blReceiveFlagTransport = true;
 
-        printf ("Recieved message from Poller.\n");
+        printf ("Transport : Recieved message.\n");
     }
 
     // Send msg to logger.
     // stTaskHandler.blTransport = true;
 
-    pthread_cond_signal (&(stTaskStatus)->stMsgFromTransport);
+    pthread_cond_signal (&(pstTaskStatus)->stMsgFromTransport);
 
-    if (true != multiThreadmsgqSend(&stTaskStatus->msgTransport, 
+    if (true != multiThreadmsgqSend(&pstTaskStatus->msgTransport, 
                                     (const char *)&stRecievedRequest, 
-                                     MSGQ_TRANSPORT_TO_LOGGER, sizeof(REQUEST)))
+                                     sizeof(REQUEST)))
     {
         perror ("multiThreadmsgqSend");
     }
     else
     {
-        stTaskStatus->blSendFlagTransportToLogger = true;
+        pstTaskStatus->blSendFlagTransportToLogger = true;
 
-        printf("Send message from Transport to Logger.\n");
+        printf("Transport : Send message.\n");
     }
 
-    if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_unlock");
     }
 
     //wait for ack from logger.
-    if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_lock");
     }
-    while (true != stTaskStatus->blSendFlagLogger)
+    while (true != pstTaskStatus->blSendFlagLogger)
     {
-        pthread_cond_wait (&(stTaskStatus)->stAckFromLogger, 
-                           &(stTaskStatus)->stMutex);
+        pthread_cond_wait (&(pstTaskStatus)->stAckFromLogger, 
+                           &(pstTaskStatus)->stMutex);
     }
 
-    if (true != multiThreadmsgqRecieve(&stTaskStatus->ackLogger, 
-                                       (const char *)&stRecievedAck, 
-                                       MSGQ_LOGGER_TO_TRANSPORT, sizeof(ACK)))
+    if (true != multiThreadmsgqRecieve(&pstTaskStatus->ackLogger, 
+                                       (char *)&stRecievedAck, sizeof(ACK)))
     {
         perror ("multiThreadmsgqRecieve");
     }
     else
     {
-        printf("Recieved acknowledgment from Logger.\n");
+        printf("Transport : Recieved Ack.\n");
     }
 
-    if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_unlock");
     }
 
     // Send ack to poller.
-    pthread_cond_signal (&(stTaskStatus)->stAckFromTransport);
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
+    {
+        perror("pthread_mutex_lock");
+    }
 
-    if (true != multiThreadmsgqSend(&stTaskStatus->ackTransport, 
-                                    (const char *)&stRecievedAck, 
-                                     MSGQ_TRANSPORT_TO_POLLER, sizeof(ACK)))
+    pthread_cond_signal (&(pstTaskStatus)->stAckFromTransport);
+
+    if (true != multiThreadmsgqSend(&pstTaskStatus->ackTransport, 
+                                    (const char *)&stRecievedAck, sizeof(ACK)))
     {
         perror ("multiThreadmsgqSend");
     }
     else
     {
-        stTaskStatus->blSendFlagTransportToPoller = true;
+        pstTaskStatus->blSendFlagTransportToPoller = true;
 
-        printf("Send acknowledgment from Transport to poller.\n");
+        printf("Transport : Send Ack.\n");
+    }
+
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
+    {
+        perror("pthread_mutex_unlock");
     }
     
     return true;
 }
 
-//**************************.multiThreadLogger.*********************************
-// Purpose : Add two numbers
-// Inputs  : None
+//****************************.multiThreadLogger.*******************************
+// Purpose : Logger Thread - wait for message from Transport, turns LED ON/OFF    
+//           send acknowledgment to Transpot. 
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
 // Return  : true
 // Notes   : None
 //******************************************************************************
-static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
+static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
 {
     ACK stAck = {0};
     REQUEST stRecievedRequest = {0};
 
-    if (0 != pthread_mutex_lock (&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_lock");
     }
 
     //wait for Transport variable.
-    while (true != stTaskStatus->blSendFlagTransportToLogger)
+    while (true != pstTaskStatus->blSendFlagTransportToLogger)
     {
-        pthread_cond_wait (&(stTaskStatus)->stMsgFromTransport, 
-                           &(stTaskStatus)->stMutex);
+        pthread_cond_wait (&(pstTaskStatus)->stMsgFromTransport, 
+                           &(pstTaskStatus)->stMutex);
     }
 
-    pthread_cond_signal (&(stTaskStatus)->stMsgFromTransport);
+    pthread_cond_signal (&(pstTaskStatus)->stMsgFromTransport);
 
-    if (true != multiThreadmsgqRecieve(&stTaskStatus->msgTransport, 
-                                       (const char *)&stRecievedRequest, 
-                                       MSGQ_TRANSPORT_TO_LOGGER, 
+    if (true != multiThreadmsgqRecieve(&pstTaskStatus->msgTransport, 
+                                       (char *)&stRecievedRequest, 
                                        sizeof(REQUEST)))
     {
         perror ("multiThreadmsgqRecieve");
     }
     else
     {
-        stTaskStatus->blReceiveFlagLogger = true;
+        pstTaskStatus->blReceiveFlagLogger = true;
 
-        printf("Recieved message from Transport.\n");
+        printf("Logger : Recieved message.\n");
     }
 
     // Send ack to Transport.
-    // stTaskHandler.blLoggerAck = true;
     if (GPIO_ON == stRecievedRequest.ucData)
     {
         printf("LED ON\n");
 
-        stAck.ucCMD = CMD_ACK;
         stAck.ucSTATE = STATE_OK;
         stAck.ucData = GPIO_ON;
     }
     else
     {
-        stAck.ucCMD = CMD_ACK;
+        printf("LED OFF\n");
         stAck.ucSTATE = STATE_ERROR;
         stAck.ucData = GPIO_OFF;
     }
 
-    if (true != multiThreadmsgqSend(&stTaskStatus->ackLogger, 
-                                    (const char *)&stAck, 
-                                     MSGQ_LOGGER_TO_TRANSPORT, sizeof(ACK)))
+    stAck.ucCMD = CMD_ACK;
+    stAck.ucUID = stRecievedRequest.ucUID;
+
+    if (true != multiThreadmsgqSend(&pstTaskStatus->ackLogger, 
+                                    (const char *)&stAck, sizeof(ACK)))
     {
         perror ("multiThreadmsgqSend");
     }
     else
     {
-        stTaskStatus->blSendFlagLogger = true;
+        pstTaskStatus->blSendFlagLogger = true;
 
-        printf("Send acknowledgment from Logger to transport.\n");
+        printf("Logger : Send Ack.\n");
     }
 
-    pthread_cond_signal(&(stTaskStatus)->stAckFromLogger);
+    pthread_cond_signal(&(pstTaskStatus)->stAckFromLogger);
 
-    if (0 != pthread_mutex_unlock(&(stTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
     {
         perror("pthread_mutex_unlock");
     }
@@ -293,86 +323,108 @@ static bool multiThreadLogger(TASK_STATUS *stTaskStatus)
     return true;
 }
 
-//****************************.multiThreadSetUp.********************************
-// Purpose : Add two numbers
+//*****************************.multiThreadSetUp.*******************************
+// Purpose : Initialize 3 threads (Poller, Transport, and Logger) and joins 
+//           them, Initialize and destroy mutex and conditional variables,
+//           Unlink message queue.
 // Inputs  : None
 // Outputs : None
-// Return  : true
+// Return  : blResult
 // Notes   : None
 //******************************************************************************
 bool multiThreadSetUp()
 {
+    bool blResult = false;
     pthread_t ulPoller = 0;
     pthread_t ulTransport = 0;
     pthread_t ulLogger = 0;
-    TASK_STATUS stTaskStatus = {0};
+    TASK_STATUS pstTaskStatus = {0};
 
-    if (0 != pthread_mutex_init (&stTaskStatus.stMutex, NULL))
+    do 
     {
-        perror ("pthread_mutex_init");
-    }
+        if (0 != pthread_mutex_init (&pstTaskStatus.stMutex, NULL))
+        {
+            perror ("pthread_mutex_init");
+        }
 
-    if (true != multiThreadInit(&stTaskStatus))
-    {
-        perror("multiThreadInit");
-    }
+        if (true != multiThreadInit(&pstTaskStatus))
+        {
+            perror("multiThreadInit");
+        }
 
-    pthread_create (&ulPoller, NULL, (void *)multiThreadPoller, &stTaskStatus);
-    pthread_create (&ulTransport, NULL, (void *)multiThreadTransport, 
-                    &stTaskStatus);
-    pthread_create (&ulLogger, NULL, (void *)multiThreadLogger, &stTaskStatus);
+        if (true != multiThreadmsgqOpen(&pstTaskStatus))
+        {
+            perror ("multiThreadmsgqOpen");
+        }
 
-    pthread_join (ulPoller, NULL);
-    pthread_join (ulTransport, NULL);
-    pthread_join (ulLogger, NULL);
+        pthread_create (&ulPoller, NULL, (void *)multiThreadPoller, 
+                        &pstTaskStatus);
+        pthread_create (&ulTransport, NULL, (void *)multiThreadTransport, 
+                        &pstTaskStatus);
+        pthread_create (&ulLogger, NULL, (void *)multiThreadLogger, 
+                        &pstTaskStatus);
 
-    if (true != multiThreadDestroy(&stTaskStatus))
-    {
-        perror("multiThreadDestroy");
-    }
+        pthread_join (ulPoller, NULL);
+        pthread_join (ulTransport, NULL);
+        pthread_join (ulLogger, NULL);
 
-    if(true != multiThreadMessageQUnlink())
-    {
-        perror ("multiThreadMessageQUnlink");
-    }
+        if (true != multiThreadDestroy(&pstTaskStatus))
+        {
+            perror("multiThreadDestroy");
+        }
 
-    if (0 != pthread_mutex_destroy (&stTaskStatus.stMutex))
-    {
-        perror ("pthread_mutex_destroy");
-    }
+        if (true != multiThreadmsgqClose(&pstTaskStatus))
+        {
+            perror ("multiThreadmsgqClose");
+        }
 
-    return true;
+        if(true != multiThreadMessageQUnlink())
+        {
+            perror ("multiThreadMessageQUnlink");
+        }
+
+        if (0 != pthread_mutex_destroy (&pstTaskStatus.stMutex))
+        {
+            perror ("pthread_mutex_destroy");
+        }
+
+        blResult = true;
+
+    }while (true != blResult);
+
+    return blResult;
 }
 
 //****************************.multiThreadInit.*********************************
-// Purpose : Add two numbers
-// Inputs  : None
+// Purpose : Initialize conditional variables.
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
-// Return  : true
+// Return  : blResult
 // Notes   : None
 //******************************************************************************
-static bool multiThreadInit(TASK_STATUS *stTaskStatus)
+static bool multiThreadInit(TASK_STATUS *pstTaskStatus)
 { 
     bool blResult = false;
 
     do 
     {
-        if (0 != pthread_cond_init(&(stTaskStatus)->stMsgFromPoller, NULL)) 
+        if (0 != pthread_cond_init(&(pstTaskStatus)->stMsgFromPoller, NULL)) 
         {
             perror("pthread_cond_init");
         }
 
-        if (0 != pthread_cond_init(&(stTaskStatus)->stMsgFromTransport, NULL)) 
+        if (0 != pthread_cond_init(&(pstTaskStatus)->stMsgFromTransport, NULL)) 
         {
             perror("pthread_cond_init");
         }
 
-        if (0 != pthread_cond_init(&(stTaskStatus)->stAckFromTransport, NULL)) 
+        if (0 != pthread_cond_init(&(pstTaskStatus)->stAckFromTransport, NULL)) 
         {
             perror("pthread_cond_init");
         }
 
-        if (0 != pthread_cond_init(&(stTaskStatus)->stAckFromLogger, NULL)) 
+        if (0 != pthread_cond_init(&(pstTaskStatus)->stAckFromLogger, NULL)) 
         {
             perror("pthread_cond_init");
         }
@@ -384,35 +436,36 @@ static bool multiThreadInit(TASK_STATUS *stTaskStatus)
     return blResult;
 }
 
-//***************************.multiThreadDestroy.*******************************
-// Purpose : Add two numbers
-// Inputs  : None
+//****************************.multiThreadDestroy.******************************
+// Purpose : Destroy conditional variables.
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
-// Return  : true
+// Return  : blResult
 // Notes   : None
 //******************************************************************************
-static bool multiThreadDestroy(TASK_STATUS *stTaskStatus)
+static bool multiThreadDestroy(TASK_STATUS *pstTaskStatus)
 { 
     bool blResult = false;
 
     do 
     {
-        if (0 != pthread_cond_destroy (&(stTaskStatus)->stMsgFromPoller))
+        if (0 != pthread_cond_destroy (&(pstTaskStatus)->stMsgFromPoller))
         {
             perror ("pthread_mutex_destroy");
         }
 
-        if (0 != pthread_cond_destroy (&(stTaskStatus)->stMsgFromTransport))
+        if (0 != pthread_cond_destroy (&(pstTaskStatus)->stMsgFromTransport))
         {
             perror ("pthread_mutex_destroy");
         }
 
-       if (0 != pthread_cond_destroy (&(stTaskStatus)->stAckFromTransport))
+       if (0 != pthread_cond_destroy (&(pstTaskStatus)->stAckFromTransport))
         {
             perror ("pthread_mutex_destroy");
         }
 
-        if (0 != pthread_cond_destroy (&(stTaskStatus)->stAckFromLogger))
+        if (0 != pthread_cond_destroy (&(pstTaskStatus)->stAckFromLogger))
         {
             perror ("pthread_mutex_destroy");
         }
@@ -422,14 +475,13 @@ static bool multiThreadDestroy(TASK_STATUS *stTaskStatus)
     }while (true != blResult);
 
     return blResult;
-
 }
 
 //*************************.multiThreadMessageQUnlink.**************************
-// Purpose : Add two numbers
+// Purpose : Unlink message queue.
 // Inputs  : None
 // Outputs : None
-// Return  : true
+// Return  : blResult
 // Notes   : None
 //******************************************************************************
 static bool multiThreadMessageQUnlink()
@@ -465,85 +517,91 @@ static bool multiThreadMessageQUnlink()
     return blResult;
 }
 
-//*************************.multiThreadMessageQUnlink.**************************
-// Purpose : Add two numbers
-// Inputs  : None
+//****************************.multiThreadmsgqOpen.*****************************
+// Purpose : Open message queue. 
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
-// Return  : true
+// Return  : blResult
 // Notes   : None
 //******************************************************************************
-static bool multiThreadmsgqSend(mqd_t *message, const char* pcBuffer, 
-                                char *pcMsgqFileName, uint32 pcMsgSize)
+static bool multiThreadmsgqOpen(TASK_STATUS *pstTaskStatus)
 {
     bool blResult = false;
     struct mq_attr attr = {0};
     attr.mq_flags = 0;
     attr.mq_maxmsg = MAX_MESSAGE;
-    attr.mq_msgsize = pcMsgSize;
     attr.mq_curmsgs = 0;
 
     do
     {
-        *message = mq_open(pcMsgqFileName, O_CREAT | O_RDWR, 0644, &attr);
-
-        if (-1 == *message)
-        {
-            perror("mq_open");
-        }
-
-        if (-1 == mq_send(*message, pcBuffer, pcMsgSize, 0))
-        {
-            perror ("mq_send");
-        }
-
-        if (0 != mq_close(*message))
-        {
-            perror ("mq_close.");
-        }
-
-        blResult = true;
-        
-    }while (true != blResult);
-    
-    return blResult;
-}
-
-//*************************.multiThreadMessageQUnlink.**************************
-// Purpose : Add two numbers
-// Inputs  : None
-// Outputs : None
-// Return  : true
-// Notes   : None
-//******************************************************************************
-static bool multiThreadmsgqRecieve(mqd_t *message, const char* pcBuffer, 
-                                   char *pcMsgqFileName, uint32 pcMsgSize)
-{
-    bool blResult = false;
-    struct mq_attr attr = {0};
-    attr.mq_flags = 0;
-    attr.mq_maxmsg = MAX_MESSAGE;
-    attr.mq_msgsize = pcMsgSize;
-    attr.mq_curmsgs = 0;
-
-    do
-    {
-        *message = mq_open(pcMsgqFileName, O_CREAT | O_RDWR, 0644, &attr);
-                                         
-        if (-1 == *message)
+        attr.mq_msgsize = sizeof(REQUEST); 
+        pstTaskStatus->msgPoller = mq_open(MSGQ_POLLER_TO_TRANSPORT, 
+                                           O_CREAT | O_RDWR, 0644, &attr);                            
+        if (-1 == pstTaskStatus->msgPoller)
         {                           
             perror("mq_open");
         }
 
-        if (-1 == mq_receive(*message, (char *)&pcBuffer, pcMsgSize, NULL))
-        {
-            perror ("mq_receive.");
-        }
-        else
-        {
-            printf("Recieved acknowledgment from Transport.\n");
+        pstTaskStatus->ackTransport = mq_open(MSGQ_TRANSPORT_TO_LOGGER,
+                                              O_CREAT | O_RDWR, 0644, &attr); 
+        if (-1 == pstTaskStatus->ackTransport)
+        {                           
+            perror("mq_open");
         }
 
-        if (0 != mq_close(*message))
+        attr.mq_msgsize = sizeof(ACK); 
+        pstTaskStatus->msgTransport = mq_open(MSGQ_LOGGER_TO_TRANSPORT, 
+                                              O_CREAT | O_RDWR, 0644, &attr); 
+        if (-1 == pstTaskStatus->msgTransport)
+        {                           
+            perror("mq_open");
+        }
+
+        pstTaskStatus->ackLogger = mq_open(MSGQ_TRANSPORT_TO_POLLER, 
+                                           O_CREAT | O_RDWR, 0644, &attr); 
+        if (-1 == pstTaskStatus->ackLogger)
+        {                           
+            perror("mq_open");
+        }
+
+        blResult = true;
+        
+    }while (true != blResult);
+    
+    return blResult;
+}
+
+//***************************.multiThreadmsgqClose.*****************************
+// Purpose : Close message queue.
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
+// Outputs : None
+// Return  : blResult
+// Notes   : None
+//******************************************************************************
+static bool multiThreadmsgqClose(TASK_STATUS *pstTaskStatus)
+{
+    bool blResult = false;
+
+    do
+    {
+        if (0 != mq_close(pstTaskStatus->msgPoller))
+        {
+            perror ("mq_close.");
+        }
+
+        if (0 != mq_close( pstTaskStatus->ackTransport))
+        {
+            perror ("mq_close.");
+        }
+
+        if (0 != mq_close(pstTaskStatus->msgTransport))
+        {
+            perror ("mq_close.");
+        }
+
+        if (0 != mq_close(pstTaskStatus->ackLogger))
         {
             perror ("mq_close.");
         }
@@ -554,6 +612,5 @@ static bool multiThreadmsgqRecieve(mqd_t *message, const char* pcBuffer,
     
     return blResult;
 }
-
 
 // EOF

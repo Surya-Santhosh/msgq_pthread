@@ -1,13 +1,13 @@
 
 CC = gcc
-SRC = $(wildcard *.c multiThread/*.c)
+SRC = $(wildcard *.c multiThread/*.c msgq/*.c)
 ASM = $(patsubst %.c,release/%.s,$(notdir $(SRC)))
 OBJ = $(patsubst %.c,release/%.o,$(notdir $(SRC)))
 DBG = $(patsubst %.c,debug/%.o,$(notdir $(SRC)))
 WFLAGS = -Wall -Werror -Wextra 
-INCLUDE_DIR += -I. -ImultiThread
+INCLUDE_DIR += -I. -ImultiThread -Imsgq
 FOLDER = release debug
-VPATH = multiThread  
+VPATH = multiThread msgq
 
 # create release and debug folders
 create_dir:
@@ -38,3 +38,4 @@ debug/%.o : %.c
 # To clear release and debug folder.
 clean : 
 	rm -rf $(FOLDER)
+	rm -rf build

@@ -3,8 +3,9 @@
 // All Rights Reserved
 //******************************************************************************
 // File    : main.c
-// Summary : Store and update device information using a linked list and a 
-//           binary file.
+// Summary : Create threads (Poller, Transport, Logger) send Request and give
+//           Ackowledgment using message queue to turn LED ON using mutex and
+//           conditional variables for synchronisation.
 // Note    : None
 // Author  : Surya Santhosh
 // Day     : 04/Aug/2025
@@ -12,7 +13,7 @@
 
 //**************************** Include Files ***********************************
 #include "common.h"
-#include "multiThread/multiThread.h"
+#include "multiThread.h"
 
 //******************************* Local Types **********************************
 
@@ -31,9 +32,12 @@
 //******************************************************************************
 int main()
 {
-    if (true == multiThreadSetUp())
+    while (true)
     {
-        printf("Success\n");
+        if (true != multiThreadSetUp())
+        {
+            perror ("multiThreadSetUp");
+        }
     }
 
     return 0;
