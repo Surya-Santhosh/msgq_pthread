@@ -4,7 +4,7 @@
 //******************************************************************************
 // File    : main.c
 // Summary : Create threads (Poller, Transport, Logger) send Request and give
-//           Ackowledgment using message queue to turn LED ON using mutex and
+//           acknowledgement using message queue to turn LED ON using mutex and
 //           conditional variables for synchronisation.
 // Note    : None
 // Author  : Surya Santhosh

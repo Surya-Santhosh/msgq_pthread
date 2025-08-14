@@ -33,7 +33,7 @@ static bool multiThreadmsgqClose(TASK_STATUS *pstTaskStatus);
 //**************************.multiThreadPoller.*********************************
 // Purpose : Poller Thread - wait for key press (GPIO High), send Request 
 //           message to transport through message queue. And wait for the 
-//           acknowledgment from Transport.
+//           acknowledgement from Transport.
 // Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
 //           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
@@ -68,10 +68,6 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
     }
 
     stRequest.ucUID[MAX_SIZE - 1] = ucCount;
-    stRequest.ucCMD = CMD_SET;
-    printf("%hhn",stRequest.ucUID);
-    printf("%hhn",stRequest.ucData);
-    printf("%d",stRequest.ucCMD);
 
     if (true != multiThreadmsgqSend(&pstTaskStatus->RequestPoller, 
                                     (const char *)&stRequest))
@@ -142,7 +138,7 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
 
 //**************************.multiThreadTransport.******************************
 // Purpose : Transport Thread - wait for message from Poller, forward to Logger  
-//           and wait for the acknowledgment from Logger, forward to Poller. 
+//           and wait for the acknowledgement from Logger, forward to Poller. 
 // Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
 //           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
@@ -255,7 +251,7 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
 
 //****************************.multiThreadLogger.*******************************
 // Purpose : Logger Thread - wait for message from Transport, turns LED ON/OFF    
-//           send acknowledgment to Transpot. 
+//           send acknowledgement to Transpot. 
 // Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
 //           queue descriptor, mutex, conditional variables and status flags.
 // Outputs : None
