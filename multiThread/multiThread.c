@@ -61,6 +61,7 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
     if (SPACE_CHARACTER != ucKey)
     {
         stRequest.ucData[MAX_SIZE - 1] = GPIO_ON;
+        stRequest.ucCMD = CMD_SET;
     }
     else
     {
@@ -290,7 +291,7 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
     }
 
     // Send ack to Transport.
-    if (GPIO_ON == stRecievedRequest.ucData[MAX_SIZE - 1])
+    if (CMD_SET == stRecievedRequest.ucCMD)
     {
         printf("LED ON\n");
         printf("Data : %04x\n", stRecievedRequest.ucData[MAX_SIZE - 1]);
