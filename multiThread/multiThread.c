@@ -21,8 +21,10 @@
 //**************************** Local Variables *********************************
 
 //***************************** Local Functions ********************************
-static bool multiThreadDestroy(TASK_STATUS *pstTaskStatus);
-static bool multiThreadInit(TASK_STATUS *pstTaskStatus);
+static bool multiThreadDestroyMutex(TASK_STATUS *pstTaskStatus);
+static bool multiThreadDestroyCond(TASK_STATUS *pstTaskStatus);
+static bool multiThreadInitMutex(TASK_STATUS *pstTaskStatus);
+static bool multiThreadInitCond(TASK_STATUS *pstTaskStatus);
 static bool multiThreadPoller(TASK_STATUS *pstTaskStatus);
 static bool multiThreadTransport(TASK_STATUS *pstTaskStatus);
 static bool multiThreadLogger(TASK_STATUS *pstTaskStatus);
@@ -48,7 +50,7 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
     uint8 ucKey = 0;
     ucCount++;
 
-    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stPollerToTransportMutex))
     {
         perror("pthread_mutex_lock");
     }
@@ -60,15 +62,15 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
 
     if (SPACE_CHARACTER != ucKey)
     {
-        stRequest.ucData[MAX_SIZE - 1] = GPIO_ON;
+        stRequest.ucData = GPIO_ON;
         stRequest.ucCMD = CMD_SET;
     }
     else
     {
-        stRequest.ucData[MAX_SIZE - 1] = GPIO_OFF;
+        stRequest.ucData = GPIO_OFF;
     }
 
-    stRequest.ucUID[MAX_SIZE - 1] = ucCount;
+    stRequest.ucUID = ucCount;
 
     if (true != multiThreadmsgqSend(&pstTaskStatus->RequestPoller, 
                                     (const char *)&stRequest))
@@ -77,11 +79,11 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
     }
     else
     {
-        printf("UID : %d\n", stRequest.ucUID[MAX_SIZE - 1]);
+        printf("UID : %d\n", stRequest.ucUID);
 
         pstTaskStatus->blRequestFlagPoller = true;
 
-        if (GPIO_ON == stRequest.ucData[MAX_SIZE - 1])
+        if (GPIO_ON == stRequest.ucData)
         {
             printf("POLLER : GPIO is high.\n");
         }
@@ -93,13 +95,13 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
 
     pthread_cond_signal (&(pstTaskStatus)->stRequestFromPoller);
 
-    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stPollerToTransportMutex))
     {
         perror("pthread_mutex_unlock");
     }
 
     //wait for ack from transport.
-    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stTransportToPollerMutex))
     {
         perror("pthread_mutex_lock");
     }
@@ -107,7 +109,7 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
     while (true != pstTaskStatus->blRequestFlagTransportToPoller)
     {
         pthread_cond_wait (&(pstTaskStatus)->stAckFromTransport, 
-                           &(pstTaskStatus)->stMutex);
+                           &(pstTaskStatus)->stTransportToPollerMutex);
     }
 
     if (true != multiThreadmsgqRecieve(&pstTaskStatus->ackTransport, 
@@ -122,14 +124,14 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
 
     if (STATE_ERROR != stRecievedAck.ucSTATE)
     {
-        printf("UID : %d success\n\n", stRecievedAck.ucUID[MAX_SIZE - 1]);
+        printf("UID : %d success\n\n", stRecievedAck.ucUID);
     }
     else
     {
-        printf("UID : %d Failed\n\n", stRecievedAck.ucUID[MAX_SIZE - 1]);
+        printf("UID : %d Failed\n\n", stRecievedAck.ucUID);
     }
 
-    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stTransportToPollerMutex))
     {
         perror("pthread_mutex_unlock");
     }
@@ -151,16 +153,16 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
     ACK stRecievedAck = {0};
     REQUEST stRecievedRequest = {0};
 
-    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
+    //wait for message from poller.
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stPollerToTransportMutex))
     {
         perror("pthread_mutex_lock");
     }
 
-    //wait for message from poller.
     while (true != pstTaskStatus->blRequestFlagPoller)
     {
         pthread_cond_wait (&(pstTaskStatus)->stRequestFromPoller, 
-                           &(pstTaskStatus)->stMutex);
+                           &(pstTaskStatus)->stPollerToTransportMutex);
     }
 
     if (true != multiThreadmsgqRecieve(&pstTaskStatus->RequestPoller, 
@@ -175,7 +177,16 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
         printf ("TRANSPORT : Recieved message.\n");
     }
 
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stPollerToTransportMutex))
+    {
+        perror("pthread_mutex_unlock");
+    }
+
     // Send msg to logger.
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stTransportToLoggerMutex))
+    {
+        perror("pthread_mutex_lock");
+    }
 
     pthread_cond_signal (&(pstTaskStatus)->stReqestFromTransport);
 
@@ -191,20 +202,21 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
         printf("TRANSPORT : Send message.\n");
     }
 
-    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stTransportToLoggerMutex))
     {
         perror("pthread_mutex_unlock");
     }
 
     //wait for ack from logger.
-    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stLoggerToTransportMutex))
     {
         perror("pthread_mutex_lock");
     }
+
     while (true != pstTaskStatus->blRequestFlagLogger)
     {
         pthread_cond_wait (&(pstTaskStatus)->stAckFromLogger, 
-                           &(pstTaskStatus)->stMutex);
+                           &(pstTaskStatus)->stLoggerToTransportMutex);
     }
 
     if (true != multiThreadmsgqRecieve(&pstTaskStatus->ackLogger, 
@@ -217,13 +229,13 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
         printf("TRANSPORT : Recieved Ack.\n");
     }
 
-    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stLoggerToTransportMutex))
     {
         perror("pthread_mutex_unlock");
     }
 
     // Send ack to poller.
-    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stTransportToPollerMutex))
     {
         perror("pthread_mutex_lock");
     }
@@ -242,7 +254,7 @@ static bool multiThreadTransport(TASK_STATUS *pstTaskStatus)
         printf("TRANSPORT : Send Ack.\n");
     }
 
-    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stTransportToPollerMutex))
     {
         perror("pthread_mutex_unlock");
     }
@@ -264,19 +276,17 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
     ACK stAck = {0};
     REQUEST stRecievedRequest = {0};
 
-    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stMutex))
+    //wait for Transport variable.
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stTransportToLoggerMutex))
     {
         perror("pthread_mutex_lock");
     }
 
-    //wait for Transport variable.
     while (true != pstTaskStatus->blRequestFlagTransportToLogger)
     {
         pthread_cond_wait (&(pstTaskStatus)->stReqestFromTransport, 
-                           &(pstTaskStatus)->stMutex);
+                           &(pstTaskStatus)->stTransportToLoggerMutex);
     }
-
-    pthread_cond_signal (&(pstTaskStatus)->stReqestFromTransport);
 
     if (true != multiThreadmsgqRecieve(&pstTaskStatus->RequestTransport, 
                                        (char *)&stRecievedRequest))
@@ -290,25 +300,35 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
         printf("LOGGER : Recieved message.\n");
     }
 
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stTransportToLoggerMutex))
+    {
+        perror("pthread_mutex_unlock");
+    }
+
     // Send ack to Transport.
+    if (0 != pthread_mutex_lock (&(pstTaskStatus)->stLoggerToTransportMutex))
+    {
+        perror("pthread_mutex_lock");
+    }
+
     if (CMD_SET == stRecievedRequest.ucCMD)
     {
         printf("LED ON\n");
-        printf("Data : %04x\n", stRecievedRequest.ucData[MAX_SIZE - 1]);
+        printf("Data : %04x\n", stRecievedRequest.ucData);
 
         stAck.ucSTATE = STATE_OK;
-        stAck.ucData[MAX_SIZE - 1] = GPIO_ON;
+        stAck.ucData = GPIO_ON;
     }
     else
     {
         printf("LED OFF\n");
-        printf("Data : %04x\n", stRecievedRequest.ucData[MAX_SIZE - 1]);
+        printf("Data : %04x\n", stRecievedRequest.ucData);
         stAck.ucSTATE = STATE_ERROR;
-        stAck.ucData[MAX_SIZE - 1] = GPIO_OFF;
+        stAck.ucData = GPIO_OFF;
     }
 
     stAck.ucCMD = CMD_ACK;
-    stAck.ucUID[MAX_SIZE - 1] = stRecievedRequest.ucUID[MAX_SIZE - 1];
+    stAck.ucUID = stRecievedRequest.ucUID;
 
     if (true != multiThreadmsgqSend(&pstTaskStatus->ackLogger, 
                                     (const char *)&stAck))
@@ -324,7 +344,7 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
 
     pthread_cond_signal(&(pstTaskStatus)->stAckFromLogger);
 
-    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stMutex))
+    if (0 != pthread_mutex_unlock(&(pstTaskStatus)->stLoggerToTransportMutex))
     {
         perror("pthread_mutex_unlock");
     }
@@ -351,12 +371,12 @@ bool multiThreadSetUp()
 
     do 
     {
-        if (0 != pthread_mutex_init (&pstTaskStatus.stMutex, NULL))
+        if (true != multiThreadInitMutex(&pstTaskStatus))
         {
-            perror ("pthread_mutex_init");
+            perror("multiThreadInit");
         }
 
-        if (true != multiThreadInit(&pstTaskStatus))
+        if (true != multiThreadInitCond(&pstTaskStatus))
         {
             perror("multiThreadInit");
         }
@@ -377,7 +397,7 @@ bool multiThreadSetUp()
         pthread_join (ulTransport, NULL);
         pthread_join (ulLogger, NULL);
 
-        if (true != multiThreadDestroy(&pstTaskStatus))
+        if (true != multiThreadDestroyCond(&pstTaskStatus))
         {
             perror("multiThreadDestroy");
         }
@@ -392,9 +412,9 @@ bool multiThreadSetUp()
             perror ("multiThreadMessageQUnlink");
         }
 
-        if (0 != pthread_mutex_destroy (&pstTaskStatus.stMutex))
+        if (true != multiThreadDestroyMutex(&pstTaskStatus))
         {
-            perror ("pthread_mutex_destroy");
+            perror("multiThreadDestroy");
         }
 
         blResult = true;
@@ -404,7 +424,7 @@ bool multiThreadSetUp()
     return blResult;
 }
 
-//****************************.multiThreadInit.*********************************
+//**************************.multiThreadInitCond.*******************************
 // Purpose : Initialize conditional variables.
 // Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
 //           queue descriptor, mutex, conditional variables and status flags.
@@ -412,7 +432,7 @@ bool multiThreadSetUp()
 // Return  : blResult
 // Notes   : None
 //******************************************************************************
-static bool multiThreadInit(TASK_STATUS *pstTaskStatus)
+static bool multiThreadInitCond(TASK_STATUS *pstTaskStatus)
 { 
     bool blResult = false;
 
@@ -446,7 +466,52 @@ static bool multiThreadInit(TASK_STATUS *pstTaskStatus)
     return blResult;
 }
 
-//****************************.multiThreadDestroy.******************************
+//**************************.multiThreadInitMutex.******************************
+// Purpose : Initialize Mutex.
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
+// Outputs : None
+// Return  : blResult
+// Notes   : None
+//******************************************************************************
+static bool multiThreadInitMutex(TASK_STATUS *pstTaskStatus)
+{ 
+    bool blResult = false;
+
+    do 
+    {
+        if (0 != pthread_mutex_init (&(pstTaskStatus)->stPollerToTransportMutex, 
+                                     NULL))
+        {
+            perror ("pthread_mutex_init");
+        }
+
+        if (0 != pthread_mutex_init (&(pstTaskStatus)->stTransportToLoggerMutex, 
+                                     NULL))
+        {
+            perror ("pthread_mutex_init");
+        }
+
+        if (0 != pthread_mutex_init (&(pstTaskStatus)->stLoggerToTransportMutex, 
+                                     NULL))
+        {
+            perror ("pthread_mutex_init");
+        }
+
+        if (0 != pthread_mutex_init (&(pstTaskStatus)->stTransportToPollerMutex, 
+                                     NULL))
+        {
+            perror ("pthread_mutex_init");
+        }
+
+        blResult = true;
+
+    }while (true != blResult);
+
+    return blResult;
+}
+
+//*************************.multiThreadDestroyCond.*****************************
 // Purpose : Destroy conditional variables.
 // Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
 //           queue descriptor, mutex, conditional variables and status flags.
@@ -454,7 +519,7 @@ static bool multiThreadInit(TASK_STATUS *pstTaskStatus)
 // Return  : blResult
 // Notes   : None
 //******************************************************************************
-static bool multiThreadDestroy(TASK_STATUS *pstTaskStatus)
+static bool multiThreadDestroyCond(TASK_STATUS *pstTaskStatus)
 { 
     bool blResult = false;
 
@@ -476,6 +541,51 @@ static bool multiThreadDestroy(TASK_STATUS *pstTaskStatus)
         }
 
         if (0 != pthread_cond_destroy (&(pstTaskStatus)->stAckFromLogger))
+        {
+            perror ("pthread_mutex_destroy");
+        }
+
+        blResult = true;
+
+    }while (true != blResult);
+
+    return blResult;
+}
+
+//*************************.multiThreadDestroyMutex.****************************
+// Purpose : Destroy conditional variables.
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
+// Outputs : None
+// Return  : blResult
+// Notes   : None
+//******************************************************************************
+static bool multiThreadDestroyMutex(TASK_STATUS *pstTaskStatus)
+{ 
+    bool blResult = false;
+
+    do 
+    {
+        if (0 != pthread_mutex_destroy
+                 (&(pstTaskStatus)->stPollerToTransportMutex))
+        {
+            perror ("pthread_mutex_destroy");
+        }
+
+        if (0 != pthread_mutex_destroy 
+                 (&(pstTaskStatus)->stTransportToLoggerMutex))
+        {
+            perror ("pthread_mutex_destroy");
+        }
+
+       if (0 != pthread_mutex_destroy 
+                (&(pstTaskStatus)->stLoggerToTransportMutex))
+        {
+            perror ("pthread_mutex_destroy");
+        }
+
+        if (0 != pthread_mutex_destroy 
+                 (&(pstTaskStatus)->stTransportToPollerMutex))
         {
             perror ("pthread_mutex_destroy");
         }
@@ -549,14 +659,14 @@ static bool multiThreadmsgqOpen(TASK_STATUS *pstTaskStatus)
 
         pstTaskStatus->RequestPoller = mq_open(MSGQ_POLLER_TO_TRANSPORT, 
                                            O_CREAT | O_RDWR, 0644, &attr);                            
-        if (-1 == pstTaskStatus->RequestPoller)
+        if (FAILURE_CASE == pstTaskStatus->RequestPoller)
         {                           
             perror("mq_open");
         }
 
         pstTaskStatus->ackTransport = mq_open(MSGQ_TRANSPORT_TO_LOGGER,
                                               O_CREAT | O_RDWR, 0644, &attr); 
-        if (-1 == pstTaskStatus->ackTransport)
+        if (FAILURE_CASE == pstTaskStatus->ackTransport)
         {                           
             perror("mq_open");
         }
@@ -565,14 +675,14 @@ static bool multiThreadmsgqOpen(TASK_STATUS *pstTaskStatus)
 
         pstTaskStatus->RequestTransport = mq_open(MSGQ_LOGGER_TO_TRANSPORT, 
                                               O_CREAT | O_RDWR, 0644, &attr); 
-        if (-1 == pstTaskStatus->RequestTransport)
+        if (FAILURE_CASE == pstTaskStatus->RequestTransport)
         {                           
             perror("mq_open");
         }
 
         pstTaskStatus->ackLogger = mq_open(MSGQ_TRANSPORT_TO_POLLER, 
                                            O_CREAT | O_RDWR, 0644, &attr); 
-        if (-1 == pstTaskStatus->ackLogger)
+        if (FAILURE_CASE == pstTaskStatus->ackLogger)
         {                           
             perror("mq_open");
         }
