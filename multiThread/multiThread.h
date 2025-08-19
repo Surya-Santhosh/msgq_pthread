@@ -21,7 +21,7 @@
 typedef struct REQUEST
 {
     uint32 ucUID;
-    int8 ucCMD;
+    uint8 ucCMD;
     uint32 ucData;
 }REQUEST;
 
@@ -29,8 +29,8 @@ typedef struct REQUEST
 typedef struct ACK
 {
     uint32 ucUID;
-    int8 ucCMD;
-    int8 ucSTATE;
+    uint8 ucSTATE;
+    uint8 ucCMD;
     uint32 ucData;
 }ACK;
 

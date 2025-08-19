@@ -31,6 +31,7 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus);
 static bool multiThreadMessageQUnlink();
 static bool multiThreadmsgqOpen(TASK_STATUS *pstTaskStatus);
 static bool multiThreadmsgqClose(TASK_STATUS *pstTaskStatus);
+static bool multiThreadhexDump(void *pBuffer, uint32 ulSize);
 
 //**************************.multiThreadPoller.*********************************
 // Purpose : Poller Thread - wait for key press (GPIO High), send Request 
@@ -68,6 +69,7 @@ static bool multiThreadPoller(TASK_STATUS *pstTaskStatus)
     else
     {
         stRequest.ucData = GPIO_OFF;
+        stRequest.ucCMD = CMD_GET;
     }
 
     stRequest.ucUID = ucCount;
@@ -311,6 +313,11 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
         perror("pthread_mutex_lock");
     }
 
+    if (true != multiThreadhexDump(&stRecievedRequest, sizeof(REQUEST)))
+    {
+        perror ("multiThreadhexDump");
+    }
+
     if (CMD_SET == stRecievedRequest.ucCMD)
     {
         printf("LED ON\n");
@@ -318,17 +325,24 @@ static bool multiThreadLogger(TASK_STATUS *pstTaskStatus)
 
         stAck.ucSTATE = STATE_OK;
         stAck.ucData = GPIO_ON;
+        stAck.ucCMD = CMD_ACK;
     }
     else
     {
         printf("LED OFF\n");
         printf("Data : %04x\n", stRecievedRequest.ucData);
+
         stAck.ucSTATE = STATE_ERROR;
         stAck.ucData = GPIO_OFF;
+        stAck.ucCMD = CMD_ACK;
     }
 
-    stAck.ucCMD = CMD_ACK;
     stAck.ucUID = stRecievedRequest.ucUID;
+
+    if (true != multiThreadhexDump(&stAck, sizeof(ACK)))
+    {
+        perror ("multiThreadhexDump");
+    }
 
     if (true != multiThreadmsgqSend(&pstTaskStatus->ackLogger, 
                                     (const char *)&stAck))
@@ -735,4 +749,26 @@ static bool multiThreadmsgqClose(TASK_STATUS *pstTaskStatus)
     return blResult;
 }
 
+//****************************.multiThreadhexDump.******************************
+// Purpose : Close message queue.
+// Inputs  : pstTaskStatus - Pointer to TASK_STATUS struct containg message
+//           queue descriptor, mutex, conditional variables and status flags.
+// Outputs : None
+// Return  : blResult
+// Notes   : None
+//******************************************************************************
+static bool multiThreadhexDump(void *pBuffer, uint32 ulSize)
+{
+    uint8 ucIndex = 0;
+    uint8 *pucBuffer = pBuffer;
+
+    for (ucIndex = 0; ucIndex < ulSize; ucIndex++)
+    {
+        printf("%x ", pucBuffer[ucIndex]); 
+    }
+
+    printf("\n");
+
+    return true;
+}
 // EOF
